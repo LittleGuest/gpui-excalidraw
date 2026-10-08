@@ -7,14 +7,12 @@ authors = ["LittleGuest"]
 repository = "https://github.com/LittleGuest/gpui-excalidraw"
 description = "Excalidraw reimplemented in Rust on top of GPUI Kit: data model, hand-drawn renderer, and editor UI."
 readme = "README.md"
+keywords = ["gpui", "excalidraw"]
+categories = ["gui"]
 
 [lib]
 name = "gpui_excalidraw"
 path = "src/lib.rs"
-
-[[bin]]
-name = "excalidraw-example"
-path = "src/bin/excalidraw-example.rs"
 
 [dependencies]
 gpui-kit = "0.7"
@@ -44,7 +42,3 @@ image = { version = "0.25", default-features = false, features = [
 
 [dev-dependencies]
 gpui-kit = { version = "0.7", features = ["test-support"] }
-
-[profile.release]
-opt-level = 3
-lto = "thin"

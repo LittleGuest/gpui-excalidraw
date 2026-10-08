@@ -248,10 +248,11 @@ pub fn ops_to_polygon(ops: &[Op]) -> Vec<Point> {
 }
 
 fn push_unique(v: &mut Vec<Point>, p: Point) {
-    if let Some(last) = v.last() {
-        if (last.x - p.x).abs() < 1e-9 && (last.y - p.y).abs() < 1e-9 {
-            return;
-        }
+    if let Some(last) = v.last()
+        && (last.x - p.x).abs() < 1e-9
+        && (last.y - p.y).abs() < 1e-9
+    {
+        return;
     }
     v.push(p);
 }

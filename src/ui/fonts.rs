@@ -76,7 +76,9 @@ mod tests {
             let len = be_u16(bytes, rec + 8) as usize;
             let off = storage + be_u16(bytes, rec + 10) as usize;
             let units: Vec<u16> = bytes[off..off + len]
-                .chunks_exact(2)
+                .as_chunks::<2>()
+                .0
+                .iter()
                 .map(|c| u16::from_be_bytes([c[0], c[1]]))
                 .collect();
             names.push(String::from_utf16_lossy(&units));

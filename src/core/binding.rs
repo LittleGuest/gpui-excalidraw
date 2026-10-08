@@ -140,15 +140,15 @@ pub fn update_bindings(scene: &mut Scene) {
         }
         let n = job.points.len();
         let mut pts = job.points.clone();
-        if let Some(sid) = &job.start {
-            if let Some(target) = scene.get(sid) {
-                pts[0] = focus_point(target, pts[1]);
-            }
+        if let Some(sid) = &job.start
+            && let Some(target) = scene.get(sid)
+        {
+            pts[0] = focus_point(target, pts[1]);
         }
-        if let Some(eid) = &job.end {
-            if let Some(target) = scene.get(eid) {
-                pts[n - 1] = focus_point(target, pts[n - 2]);
-            }
+        if let Some(eid) = &job.end
+            && let Some(target) = scene.get(eid)
+        {
+            pts[n - 1] = focus_point(target, pts[n - 2]);
         }
         let b = Bounds::from_points(&pts);
         if let Some(el) = scene.get_mut(&job.id) {

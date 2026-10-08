@@ -630,18 +630,19 @@ impl Editor {
                     } else if !already {
                         self.document.select(&id);
                     }
-                    if let Some(e) = self.document.scene.get(&id) {
-                        if e.is_text() && already {
-                            self.begin_text_edit(&id, false);
-                            return;
-                        }
+                    if let Some(e) = self.document.scene.get(&id)
+                        && e.is_text()
+                        && already
+                    {
+                        self.begin_text_edit(&id, false);
+                        return;
                     }
 
-                    if click_count >= 2 {
-                        if let Some(text_id) = self.document.container_text_id(&id) {
-                            self.begin_text_edit(&text_id, false);
-                            return;
-                        }
+                    if click_count >= 2
+                        && let Some(text_id) = self.document.container_text_id(&id)
+                    {
+                        self.begin_text_edit(&text_id, false);
+                        return;
                     }
                     self.begin_drag(world, mods.alt);
                 } else {
@@ -662,14 +663,12 @@ impl Editor {
                 if let Some(id) = self
                     .document
                     .text_target_at(world, 5.0 / self.document.zoom)
+                    && let Some(e) = self.document.scene.get(&id)
+                    && e.is_text()
                 {
-                    if let Some(e) = self.document.scene.get(&id) {
-                        if e.is_text() {
-                            self.document.select(&id);
-                            self.begin_text_edit(&id, false);
-                            return;
-                        }
-                    }
+                    self.document.select(&id);
+                    self.begin_text_edit(&id, false);
+                    return;
                 }
                 let opts = self.current_style_options();
                 self.push_checkpoint();
@@ -992,16 +991,17 @@ impl Editor {
         }
 
         if matches!(self.document.tool, Tool::Line | Tool::Arrow) {
-            if let Some(start) = self.pending_points.first().copied() {
-                if self.pending_points.len() == 1 && start.distance(world) > CLICK_THRESHOLD {
-                    let end = if mods.shift {
-                        crate::core::binding::constrain_angle(start, world, 15.0)
-                    } else {
-                        self.document.snap(world)
-                    };
-                    self.pending_points.push(end);
-                    self.finish_pending_line();
-                }
+            if let Some(start) = self.pending_points.first().copied()
+                && self.pending_points.len() == 1
+                && start.distance(world) > CLICK_THRESHOLD
+            {
+                let end = if mods.shift {
+                    crate::core::binding::constrain_angle(start, world, 15.0)
+                } else {
+                    self.document.snap(world)
+                };
+                self.pending_points.push(end);
+                self.finish_pending_line();
             }
             return;
         }
@@ -1171,10 +1171,10 @@ impl Editor {
             }
         }
         for (id, mime, url) in missing {
-            if let Some(bytes) = crate::bitmap::bytes_from_data_url(&url) {
-                if let Some(render) = crate::bitmap::decode_render_image(&bytes, &mime) {
-                    self.image_sources.insert(id, render);
-                }
+            if let Some(bytes) = crate::bitmap::bytes_from_data_url(&url)
+                && let Some(render) = crate::bitmap::decode_render_image(&bytes, &mime)
+            {
+                self.image_sources.insert(id, render);
             }
         }
         let known: Vec<String> = self.document.files.keys().cloned().collect();
@@ -2390,10 +2390,10 @@ impl Editor {
     pub(crate) fn picker_font_groups(&self) -> (Vec<FontFamily>, Vec<FontFamily>) {
         let mut scene_families: Vec<FontFamily> = Vec::new();
         for element in self.document.scene.non_deleted() {
-            if let Element::Text(text) = element {
-                if !scene_families.contains(&text.font_family) {
-                    scene_families.push(text.font_family);
-                }
+            if let Element::Text(text) = element
+                && !scene_families.contains(&text.font_family)
+            {
+                scene_families.push(text.font_family);
             }
         }
         let query = self.font_query.to_lowercase();
@@ -2559,11 +2559,11 @@ impl Editor {
             if modifiers.control || modifiers.platform || modifiers.alt {
                 return true;
             }
-            if let Some(ch) = printable_char(key, key_char) {
-                if ch.chars().all(|c| c.is_ascii_hexdigit()) {
-                    self.hex_buffer.push_str(&ch.to_lowercase());
-                    self.apply_hex_buffer(target);
-                }
+            if let Some(ch) = printable_char(key, key_char)
+                && ch.chars().all(|c| c.is_ascii_hexdigit())
+            {
+                self.hex_buffer.push_str(&ch.to_lowercase());
+                self.apply_hex_buffer(target);
             }
             return true;
         }
@@ -2576,11 +2576,11 @@ impl Editor {
             return true;
         }
 
-        if modifiers.shift {
-            if let Some(index) = shade_digit(key) {
-                self.set_active_shade(target, index);
-                return true;
-            }
+        if modifiers.shift
+            && let Some(index) = shade_digit(key)
+        {
+            self.set_active_shade(target, index);
+            return true;
         }
         if let Some(index) = shade_digit(key) {
             let custom = self.custom_colors(target);
@@ -3199,10 +3199,10 @@ impl Render for Editor {
                 Self::act(cx, |this, e: &MouseDownEvent, _, _| {
                     let world = this
                         .screen_point(e.position.x.to_f64() as f32, e.position.y.to_f64() as f32);
-                    if let Some(id) = this.document.element_at(world, 5.0 / this.document.zoom) {
-                        if !this.document.selected.contains(&id) {
-                            this.document.select(&id);
-                        }
+                    if let Some(id) = this.document.element_at(world, 5.0 / this.document.zoom)
+                        && !this.document.selected.contains(&id)
+                    {
+                        this.document.select(&id);
                     }
                     this.context_menu =
                         Some(Point::new(e.position.x.to_f64(), e.position.y.to_f64()));
@@ -4979,12 +4979,13 @@ impl Editor {
         let keeps = drag
             .map(|state| state.keeps_content())
             .unwrap_or(kind == DropKind::Library);
-        if kind == DropKind::Scene && !keeps {
-            if let Some(path) = list.iter().find(|path| Self::is_scene_file(path)) {
-                let path = path.to_string_lossy().to_string();
-                if self.load_from(&path).is_ok() {
-                    return true;
-                }
+        if kind == DropKind::Scene
+            && !keeps
+            && let Some(path) = list.iter().find(|path| Self::is_scene_file(path))
+        {
+            let path = path.to_string_lossy().to_string();
+            if self.load_from(&path).is_ok() {
+                return true;
             }
         }
         self.insert_image_paths(list);

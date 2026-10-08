@@ -89,51 +89,51 @@ pub fn paint_elements(
                 }
                 continue;
             }
-            if d.options.fill_style == crate::core::types::FillStyle::Solid {
-                if let (Some(fill_path), Some(fill_color)) = (&d.fill_path, d.options.fill_color) {
-                    let mut fb = PathBuilder::fill();
-                    for op in fill_path {
-                        match op {
-                            Op::MoveTo(x, y) => {
-                                fb.move_to(point(
-                                    px((scroll_x + x * zoom) as f32),
-                                    px((scroll_y + y * zoom) as f32),
-                                ));
-                            }
-                            Op::LineTo(x, y) => {
-                                fb.line_to(point(
-                                    px((scroll_x + x * zoom) as f32),
-                                    px((scroll_y + y * zoom) as f32),
-                                ));
-                            }
-                            Op::QuadraticTo(cx0, cy0, x, y) => {
-                                fb.curve_to(
-                                    point(
-                                        px((scroll_x + x * zoom) as f32),
-                                        px((scroll_y + y * zoom) as f32),
-                                    ),
-                                    point(
-                                        px((scroll_x + cx0 * zoom) as f32),
-                                        px((scroll_y + cy0 * zoom) as f32),
-                                    ),
-                                );
-                            }
-                            Op::Close => {
-                                fb.close();
-                            }
-                            _ => {}
+            if d.options.fill_style == crate::core::types::FillStyle::Solid
+                && let (Some(fill_path), Some(fill_color)) = (&d.fill_path, d.options.fill_color)
+            {
+                let mut fb = PathBuilder::fill();
+                for op in fill_path {
+                    match op {
+                        Op::MoveTo(x, y) => {
+                            fb.move_to(point(
+                                px((scroll_x + x * zoom) as f32),
+                                px((scroll_y + y * zoom) as f32),
+                            ));
                         }
+                        Op::LineTo(x, y) => {
+                            fb.line_to(point(
+                                px((scroll_x + x * zoom) as f32),
+                                px((scroll_y + y * zoom) as f32),
+                            ));
+                        }
+                        Op::QuadraticTo(cx0, cy0, x, y) => {
+                            fb.curve_to(
+                                point(
+                                    px((scroll_x + x * zoom) as f32),
+                                    px((scroll_y + y * zoom) as f32),
+                                ),
+                                point(
+                                    px((scroll_x + cx0 * zoom) as f32),
+                                    px((scroll_y + cy0 * zoom) as f32),
+                                ),
+                            );
+                        }
+                        Op::Close => {
+                            fb.close();
+                        }
+                        _ => {}
                     }
-                    if let Ok(path) = fb.build() {
-                        let opacity = (d.options.opacity / 100.0).clamp(0.0, 1.0);
-                        let color = rgba_hex(
-                            fill_color.r,
-                            fill_color.g,
-                            fill_color.b,
-                            fill_color.a * opacity,
-                        );
-                        window.paint_path(path, color);
-                    }
+                }
+                if let Ok(path) = fb.build() {
+                    let opacity = (d.options.opacity / 100.0).clamp(0.0, 1.0);
+                    let color = rgba_hex(
+                        fill_color.r,
+                        fill_color.g,
+                        fill_color.b,
+                        fill_color.a * opacity,
+                    );
+                    window.paint_path(path, color);
                 }
             }
             for set in &d.sets {

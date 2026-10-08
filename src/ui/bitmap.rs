@@ -93,7 +93,7 @@ pub fn decode_render_image(bytes: &[u8], mime: &str) -> Option<Arc<RenderImage>>
     let data = rasterized.as_deref().unwrap_or(bytes);
     let decoded = image::load_from_memory(data).ok()?;
     let mut rgba = decoded.to_rgba8();
-    for pixel in rgba.chunks_exact_mut(4) {
+    for pixel in rgba.as_chunks_mut::<4>().0 {
         pixel.swap(0, 2);
     }
     let (width, height) = rgba.dimensions();

@@ -275,10 +275,10 @@ impl Document {
     pub fn move_selected(&mut self, dx: f64, dy: f64) {
         let ids: Vec<String> = self.selected.iter().cloned().collect();
         for id in ids {
-            if let Some(e) = self.scene.get_mut(&id) {
-                if !e.base().locked {
-                    translate_element(e, dx, dy);
-                }
+            if let Some(e) = self.scene.get_mut(&id)
+                && !e.base().locked
+            {
+                translate_element(e, dx, dy);
             }
         }
         self.refresh_bindings();
@@ -299,10 +299,10 @@ impl Document {
     pub fn rotate_selected(&mut self, angle: f64, pivot: Point) {
         let ids: Vec<String> = self.selected.iter().cloned().collect();
         for id in ids {
-            if let Some(e) = self.scene.get_mut(&id) {
-                if !e.base().locked {
-                    crate::core::transform::rotate_element(e, angle, pivot);
-                }
+            if let Some(e) = self.scene.get_mut(&id)
+                && !e.base().locked
+            {
+                crate::core::transform::rotate_element(e, angle, pivot);
             }
         }
         self.refresh_bindings();
@@ -567,10 +567,10 @@ impl Document {
     pub fn bring_forward(&mut self) {
         let ids: Vec<String> = self.selected.iter().cloned().collect();
         for id in ids {
-            if let Some(pos) = self.scene.elements.iter().position(|e| e.id() == id) {
-                if pos + 1 < self.scene.elements.len() {
-                    self.scene.elements.swap(pos, pos + 1);
-                }
+            if let Some(pos) = self.scene.elements.iter().position(|e| e.id() == id)
+                && pos + 1 < self.scene.elements.len()
+            {
+                self.scene.elements.swap(pos, pos + 1);
             }
         }
     }
@@ -578,10 +578,10 @@ impl Document {
     pub fn send_backward(&mut self) {
         let ids: Vec<String> = self.selected.iter().cloned().collect();
         for id in ids.iter().rev() {
-            if let Some(pos) = self.scene.elements.iter().position(|e| e.id() == id) {
-                if pos > 0 {
-                    self.scene.elements.swap(pos, pos - 1);
-                }
+            if let Some(pos) = self.scene.elements.iter().position(|e| e.id() == id)
+                && pos > 0
+            {
+                self.scene.elements.swap(pos, pos - 1);
             }
         }
     }

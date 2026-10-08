@@ -210,10 +210,10 @@ pub fn resize_selected(
     pivot: Point,
 ) {
     for id in ids {
-        if let Some(e) = scene.get_mut(id) {
-            if !e.base().locked {
-                scale_element(e, scale_x, scale_y, pivot);
-            }
+        if let Some(e) = scene.get_mut(id)
+            && !e.base().locked
+        {
+            scale_element(e, scale_x, scale_y, pivot);
         }
     }
 }
