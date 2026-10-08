@@ -4,11 +4,11 @@ A project that starts from scratch and uses Rust to re implement [Excalidraw](ht
 
 ## Overview
 
-This is a **Rust workspace** that reimplements Excalidraw — the hand-drawn style virtual whiteboard — as a reusable library (`lib`) with a runnable desktop application example. The data model, serialization format, and interaction model faithfully mirror the upstream Excalidraw project.
+This is a **single Rust library crate** that reimplements Excalidraw — the hand-drawn style virtual whiteboard — with a runnable desktop application example. The data model, serialization format, and interaction model faithfully mirror the upstream Excalidraw project.
 
 ### Key characteristics
 
-- **Pure Rust library** (`crates/excalidraw`) consumable by downstream GPUI Kit applications.
+- **Pure Rust library** (lib name `gpui_excalidraw`) consumable by downstream GPUI Kit applications.
 - **1:1 data model** — element types, fill styles, stroke styles, arrowheads, bindings, and the `.excalidraw` JSON schema match Excalidraw's `packages/element/src/types.ts` exactly.
 - **i18n** — 11 locales (English, 简体中文, 繁體中文, 日本語, 한국어, Deutsch, Français, Español, Italiano, Português, Русский) with runtime language switching.
 - **Theming** — light/dark theme switching mapped onto GPUI Kit's semantic design tokens.
@@ -23,22 +23,34 @@ This is a **Rust workspace** that reimplements Excalidraw — the hand-drawn sty
 - **Export & persistence** — SVG export (hachure/cross-hatch/zigzag fills clipped to the shape outline, arrowheads, rounded corners, solid fills, multi-line text via `<tspan>`, and embedded images as `<image href="data:…">`), real **PNG export** (the SVG is rasterized with `resvg`/`usvg`, so the bytes are an actual bitmap at 1x/2x scale, not an SVG renamed), and `.excalidraw` JSON serialization/deserialization compatible with the official format (including the top-level `files` map), plus round-trip load.
 - **Tests** — unit tests, integration tests (including headless GPUI UI tests), and runnable examples.
 
-## Workspace layout
+## Layout
+
+The whole package lives at the repository root:
 
 ```
-crates/
-  excalidraw-core      Data model, geometry, element types, scene, collision, transform
-  excalidraw-render    Hand-drawn (roughjs-style) renderer + SVG exporter
-  excalidraw-ui        GPUI Kit editor: toolbar, canvas, interaction, i18n, theme, export
-  excalidraw           Facade crate re-exporting the full public API
-  excalidraw-example   Runnable single-window editor application
+Cargo.toml             Single package: lib `gpui_excalidraw` + bin `excalidraw-example`
+build.rs               Embeds assets/icons/*.svg into `ui::icons`
+assets/                icons/ (128 upstream glyphs) + fonts/ (Excalifont, Virgil)
+src/
+  lib.rs               Crate root: `pub mod core` / `render` / `ui` + top-level re-exports
+  core/                Data model, geometry, element types, scene, collision, transform
+  render/              Hand-drawn (roughjs-style) renderer + SVG/PNG exporters
+  ui/                  GPUI Kit editor: toolbar, canvas, interaction, i18n, theme, export
+  bin/                 The single-window editor application
+tests/                 Integration tests (core_*, render, ui_*)
+examples/              verify_features, demo_scene_svg, export_demo
 ```
+
+The layer directories are declared through `#[path]` in `src/core/lib.rs`,
+`src/render/lib.rs`, and `src/ui/lib.rs`, which keeps the physical grouping
+(`core/`, `render/`, `ui/`) while the public paths stay short — `gpui_excalidraw::core::…`,
+`::render::…`, `::ui::…`.
 
 ## Building & running
 
 ```bash
 # Run the full editor application (requires a desktop environment)
-cargo run -p excalidraw-example
+cargo run --bin excalidraw-example
 
 # Run all tests (unit + integration + headless UI tests)
 cargo test
@@ -49,7 +61,7 @@ cargo clippy --all-targets
 
 ### Registry note
 
-The workspace ships a `.cargo/config.toml` that points `crates-io` at the official sparse index. If your machine uses a different mirror (e.g. `rsproxy`), it will be picked up automatically from your global `~/.cargo/config.toml`.
+Add a `.cargo/config.toml` pointing `crates-io` at the official sparse index if your setup needs it; a global `~/.cargo/config.toml` (e.g. `rsproxy`) is picked up automatically.
 
 ## Using as a library
 
@@ -57,7 +69,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-gpui-excalidraw = { path = "path/to/gpui-excalidraw/crates/excalidraw" }
+gpui-excalidraw = { path = "path/to/gpui-excalidraw" }
 gpui-kit = "0.7"
 ```
 
@@ -119,13 +131,13 @@ The `.excalidraw` JSON output uses Excalidraw's exact `camelCase` field names an
 
 ```bash
 # End-to-end feature verification; writes verify.svg + verify.png + verify.excalidraw
-cargo run -p excalidraw --example verify_features
+cargo run --example verify_features
 
 # Render the built-in demo scene to demo-scene.svg
-cargo run -p excalidraw --example demo_scene_svg
+cargo run --example demo_scene_svg
 
 # Print an SVG export of a small scene and write diagram.excalidraw
-cargo run -p excalidraw --example export_demo
+cargo run --example export_demo
 ```
 
 PNG export is available both from the UI (file menu → 导出图片, or Ctrl+Shift+E)

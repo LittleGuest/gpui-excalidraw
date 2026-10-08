@@ -1,28 +1,49 @@
-[workspace]
-resolver = "2"
-members = [
-  "crates/excalidraw-core",
-  "crates/excalidraw-render",
-  "crates/excalidraw-ui",
-  "crates/excalidraw",
-  "crates/excalidraw-example",
-]
-
-[workspace.package]
+[package]
+name = "gpui-excalidraw"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
 authors = ["LittleGuest"]
 repository = "https://github.com/LittleGuest/gpui-excalidraw"
+description = "Excalidraw reimplemented in Rust on top of GPUI Kit: data model, hand-drawn renderer, and editor UI."
+readme = "README.md"
 
-[workspace.dependencies]
+[lib]
+name = "gpui_excalidraw"
+path = "src/lib.rs"
+
+[[bin]]
+name = "excalidraw-example"
+path = "src/bin/excalidraw-example.rs"
+
+[dependencies]
 gpui-kit = "0.7"
+perfect_freehand = "0.1.1"
+resvg = "0.45.1"
+tiny-skia = "0.11.4"
+usvg = "0.45.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 uuid = { version = "1", features = ["v4", "serde"] }
 thiserror = "2"
 parking_lot = "0.12"
 anyhow = "1"
+base64 = "0.22"
+smallvec = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+image = { version = "0.25", default-features = false, features = [
+  "bmp",
+  "gif",
+  "ico",
+  "jpeg",
+  "png",
+  "pnm",
+  "tiff",
+  "webp",
+] }
+
+[dev-dependencies]
+gpui-kit = { version = "0.7", features = ["test-support"] }
 
 [profile.release]
 opt-level = 3
