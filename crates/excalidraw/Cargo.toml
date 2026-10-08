@@ -1,0 +1,15 @@
+[package]
+name = "gpui-excalidraw"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Facade crate re-exporting the full Excalidraw reimplementation for downstream users."
+
+[dependencies]
+excalidraw-core = { path = "../excalidraw-core" }
+excalidraw-render = { path = "../excalidraw-render" }
+excalidraw-ui = { path = "../excalidraw-ui" }
+
+[dev-dependencies]

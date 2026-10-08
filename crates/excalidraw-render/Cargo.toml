@@ -1,0 +1,19 @@
+[package]
+name = "excalidraw-render"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Hand-drawn style renderer for the Excalidraw reimplementation."
+
+[dependencies]
+excalidraw-core = { path = "../excalidraw-core" }
+perfect_freehand = "0.1.1"
+resvg = "0.45.1"
+tiny-skia = "0.11.4"
+usvg = "0.45.1"
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
