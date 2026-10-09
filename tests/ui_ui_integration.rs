@@ -821,6 +821,41 @@ fn save_raises_the_export_dialog(cx: &mut TestAppContext) {
 }
 
 #[gpui_kit::test]
+fn export_dialog_moves_the_caret_and_selects_all(cx: &mut TestAppContext) {
+    let (window, content) = open_editor_sized(cx, 1000.0, 800.0);
+
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        window.press("ctrl-s", cx);
+        window.render_frame(cx);
+
+        let seeded = content.update(cx, |editor, _| editor.project_name_value());
+
+        // Home moves the caret, so the next character is inserted in front.
+        window.press("home", cx);
+        window.input("A", cx);
+        window.render_frame(cx);
+        assert_eq!(
+            window.find("save-filename").value(),
+            Some(format!("A{seeded}").as_str()),
+            "typing did not insert at the caret"
+        );
+
+        // Ctrl+A selects the whole field; the next character replaces it.
+        window.press("ctrl-a", cx);
+        window.input("Z", cx);
+        window.render_frame(cx);
+        assert_eq!(
+            window.find("save-filename").value(),
+            Some("Z"),
+            "typing did not replace the selection"
+        );
+        content.update(cx, |editor, _| assert_eq!(editor.project_name_value(), "Z"));
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
 fn ctrl_f_finds_and_cycles_text_matches(cx: &mut TestAppContext) {
     let (window, content) = open_editor(cx);
 

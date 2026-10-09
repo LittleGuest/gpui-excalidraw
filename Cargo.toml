@@ -1,13 +1,13 @@
 [package]
 name = "gpui-excalidraw"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 license = "MIT"
 authors = ["LittleGuest"]
 repository = "https://github.com/LittleGuest/gpui-excalidraw"
 description = "Excalidraw reimplemented in Rust on top of GPUI Kit: data model, hand-drawn renderer, and editor UI."
 readme = "README.md"
-keywords = ["gpui", "excalidraw"]
+keywords = ["gpui", "gpui-kit", "excalidraw", "gui"]
 categories = ["gui"]
 
 [lib]

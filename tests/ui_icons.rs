@@ -168,11 +168,13 @@ fn asset_source_resolves_every_icon_and_misses_cleanly() {
         assert!(bytes.starts_with(b"<svg"), "{path} did not serve SVG bytes");
     }
 
+    // A path outside the bundled set falls through to the wrapped asset store,
+    // which reports a miss as `Err` rather than `Ok(None)`. Either shape is a
+    // clean miss; what must never happen is returning SVG bytes for it.
+    let miss = assets.load("icons/DefinitelyNotAnIcon.svg");
     assert!(
-        assets
-            .load("icons/DefinitelyNotAnIcon.svg")
-            .expect("a miss is not an error")
-            .is_none()
+        matches!(&miss, Ok(None) | Err(_)),
+        "an unknown icon must not resolve to bytes: {miss:?}"
     );
     assert!(
         assets

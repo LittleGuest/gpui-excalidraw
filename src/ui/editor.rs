@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
-use gpui_kit::{base::StyledExt, *};
+use gpui_kit::{base::StyledExt, prelude::FluentBuilder as _, *};
 
 use crate::{
     chrome,
@@ -114,6 +114,12 @@ pub struct Editor {
     show_save_dialog: bool,
     pending_save_dialog: bool,
     project_name: String,
+    /// Caret position inside `project_name`, as a byte offset kept on a `char`
+    /// boundary. The selection is the span between this and `name_anchor`.
+    name_caret: usize,
+    /// The fixed end of the selection; equal to `name_caret` when nothing is
+    /// selected. Tracking both ends is what lets shift+arrow grow a selection.
+    name_anchor: usize,
 
     pending_scene_save: bool,
 
@@ -130,6 +136,14 @@ pub struct Editor {
 
     show_link_dialog: bool,
     link_input: String,
+
+    scene_store: Option<SceneStore>,
+}
+
+/// Host-provided synchronous persistence for the scene document.
+pub struct SceneStore {
+    save: Box<dyn Fn(&str, &str) -> Result<(), String>>,
+    load: Box<dyn Fn() -> Result<Vec<(String, String)>, String>>,
 }
 
 impl Editor {
@@ -193,6 +207,8 @@ impl Editor {
             show_save_dialog: false,
             pending_save_dialog: false,
             project_name: String::new(),
+            name_caret: 0,
+            name_anchor: 0,
             pending_scene_save: false,
             color_popup: None,
             shade_stroke: crate::theme::DEFAULT_STROKE_SHADE,
@@ -203,6 +219,7 @@ impl Editor {
             font_query: String::new(),
             show_link_dialog: false,
             link_input: String::new(),
+            scene_store: None,
         }
     }
 
@@ -230,6 +247,104 @@ impl Editor {
 
     pub fn set_theme(&mut self, theme: Theme) {
         self.document.set_theme(theme);
+    }
+
+    /// Installs a synchronous document store hook used by the "save to store" /
+    /// "open from store" menu entries. Hosts that keep documents in a database
+    /// or elsewhere can plug in their own persistence without touching the
+    /// editor internals.
+    pub fn set_scene_store<F, G>(&mut self, save: F, load: G)
+    where
+        F: Fn(&str, &str) -> Result<(), String> + 'static,
+        G: Fn() -> Result<Vec<(String, String)>, String> + 'static,
+    {
+        self.scene_store = Some(SceneStore {
+            save: Box::new(save),
+            load: Box::new(load),
+        });
+    }
+
+    /// Replaces the whole scene, keeping undo history, selection state and the
+    /// image cache consistent. Use this instead of assigning `document.scene`
+    /// directly when loading a document from an external source.
+    pub fn replace_scene(&mut self, scene: crate::core::scene::Scene, app_state: AppState) {
+        self.push_checkpoint();
+        self.commit_text_edit();
+        self.document.scene = scene;
+        self.document.selected.clear();
+        self.document.zoom = app_state.zoom.value;
+        self.document.scroll = Point::new(app_state.scroll_x, app_state.scroll_y);
+        self.document.theme = app_state.theme;
+        self.document.files = app_state.files;
+        self.image_sources.clear();
+        self.sync_image_sources();
+        self.document.refresh_bindings();
+
+        self.drawing = false;
+        self.drag_start = None;
+        self.last_point = None;
+        self.current_points.clear();
+        self.panning = false;
+        self.pan_start = None;
+        self.pan_scroll = None;
+        self.drag_mode = None;
+        self.resize_origin = None;
+        self.marquee_start = None;
+        self.marquee_current = None;
+        self.laser_points.clear();
+        self.pending_points.clear();
+        self.erasing = false;
+        self.active_locked_id = None;
+        self.context_menu = None;
+        self.toast = None;
+    }
+
+    /// Serializes the current scene into the `.excalidraw` JSON envelope.
+    pub fn scene_json(&self) -> Result<String, String> {
+        crate::export::scene_to_json(&self.document.scene, &self.app_state())
+            .map_err(|err| err.to_string())
+    }
+
+    /// Loads a scene from a `.excalidraw` JSON envelope.
+    pub fn load_scene_json(&mut self, json: &str) -> Result<(), String> {
+        let (scene, app_state) =
+            crate::export::json_to_scene(json).map_err(|err| err.to_string())?;
+        self.replace_scene(scene, app_state);
+        Ok(())
+    }
+
+    /// Saves the current scene through the installed scene store.
+    pub fn save_to_store(&mut self, name: &str) -> Result<(), String> {
+        let Some(store) = self.scene_store.as_ref() else {
+            return Err("no scene store installed".to_string());
+        };
+        let json = self.scene_json()?;
+        (store.save)(name, &json)
+    }
+
+    pub fn scene_store_installed(&self) -> bool {
+        self.scene_store.is_some()
+    }
+
+    /// Documents available through the installed scene store, newest first.
+    pub fn store_documents(&self) -> Result<Vec<(String, String)>, String> {
+        match self.scene_store.as_ref() {
+            Some(store) => (store.load)(),
+            None => Ok(Vec::new()),
+        }
+    }
+
+    /// Loads one document from the installed scene store by name.
+    pub fn load_from_store(&mut self, name: &str) -> Result<(), String> {
+        let docs = self.store_documents()?;
+        let json = docs
+            .into_iter()
+            .find(|(doc_name, _)| doc_name == name)
+            .map(|(_, json)| json)
+            .ok_or_else(|| format!("document not found: {name}"))?;
+        self.load_scene_json(&json)?;
+        self.project_name = name.to_string();
+        Ok(())
     }
 
     pub fn add_demo_scene(&mut self) {
@@ -1837,6 +1952,8 @@ impl Editor {
         if self.project_name.is_empty() {
             self.project_name = self.untitled_name();
         }
+        self.name_caret = self.project_name.len();
+        self.name_anchor = self.name_caret;
         self.show_save_dialog = true;
     }
 
@@ -2491,32 +2608,159 @@ impl Editor {
         true
     }
 
+    /// The selected byte span of the filename field, normalized to
+    /// `start <= end`. An empty span means there is a caret but no selection.
+    fn save_name_range(&self) -> (usize, usize) {
+        let len = self.project_name.len();
+        let caret = self.name_caret.min(len);
+        let anchor = self.name_anchor.min(len);
+        (caret.min(anchor), caret.max(anchor))
+    }
+
+    fn save_name_select_all(&mut self) {
+        self.name_anchor = 0;
+        self.name_caret = self.project_name.len();
+    }
+
+    /// Replaces the selection, or inserts at the caret, then parks the caret
+    /// after the inserted text and drops the selection.
+    fn save_name_insert(&mut self, text: &str) {
+        let (start, end) = self.save_name_range();
+        self.project_name.replace_range(start..end, text);
+        self.name_caret = start + text.len();
+        self.name_anchor = self.name_caret;
+    }
+
+    fn save_name_backspace(&mut self) {
+        let (start, end) = self.save_name_range();
+        let at = if start != end {
+            self.project_name.replace_range(start..end, "");
+            start
+        } else if start > 0 {
+            let prev = char_boundary_before(&self.project_name, start);
+            self.project_name.replace_range(prev..start, "");
+            prev
+        } else {
+            return;
+        };
+        self.name_caret = at;
+        self.name_anchor = at;
+    }
+
+    fn save_name_delete(&mut self) {
+        let (start, end) = self.save_name_range();
+        if start == end {
+            let next = char_boundary_after(&self.project_name, start);
+            if next == start {
+                return;
+            }
+            self.project_name.replace_range(start..next, "");
+        } else {
+            self.project_name.replace_range(start..end, "");
+        }
+        self.name_caret = start;
+        self.name_anchor = start;
+    }
+
+    /// Moves the caret. Without `shift` a live selection collapses to the
+    /// corresponding edge first, which is how every text field behaves.
+    fn save_name_move(&mut self, key: &str, shift: bool) {
+        let len = self.project_name.len();
+        let caret = self.name_caret.min(len);
+        let (start, end) = self.save_name_range();
+        let selected = start != end;
+
+        let next = match key {
+            "left" if !shift && selected => start,
+            "left" => char_boundary_before(&self.project_name, caret),
+            "right" if !shift && selected => end,
+            "right" => char_boundary_after(&self.project_name, caret),
+            "home" => 0,
+            "end" => len,
+            _ => caret,
+        };
+
+        self.name_caret = next;
+        if !shift {
+            self.name_anchor = next;
+        }
+    }
+
+    fn save_name_copy(&self, cx: &App) {
+        let (start, end) = self.save_name_range();
+        if start == end {
+            return;
+        }
+        cx.write_to_clipboard(ClipboardItem::new_string(
+            self.project_name[start..end].to_string(),
+        ));
+    }
+
+    fn save_name_cut(&mut self, cx: &App) {
+        let (start, end) = self.save_name_range();
+        if start == end {
+            return;
+        }
+        cx.write_to_clipboard(ClipboardItem::new_string(
+            self.project_name[start..end].to_string(),
+        ));
+        self.project_name.replace_range(start..end, "");
+        self.name_caret = start;
+        self.name_anchor = start;
+    }
+
+    fn save_name_paste(&mut self, cx: &App) {
+        let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) else {
+            return;
+        };
+        // The field is single line; drop line breaks the way a browser drops
+        // them when pasting into `<input type="text">`.
+        let text: String = text
+            .chars()
+            .filter(|ch| *ch != '\n' && *ch != '\r')
+            .collect();
+        if !text.is_empty() {
+            self.save_name_insert(&text);
+        }
+    }
+
     fn handle_save_key(
         &mut self,
         key: &str,
         key_char: Option<String>,
         modifiers: Modifiers,
     ) -> bool {
-        match key {
-            "escape" => {
-                self.close_save_dialog();
-                return true;
-            }
-            "backspace" | "delete" => {
-                self.project_name.pop();
-                return true;
-            }
-            "space" => {
-                self.project_name.push(' ');
-                return true;
-            }
-            _ => {}
-        }
-        if modifiers.control || modifiers.platform || modifiers.alt {
+        if key == "escape" {
+            self.close_save_dialog();
             return true;
         }
-        if let Some(ch) = printable_char(key, key_char) {
-            self.project_name.push_str(&ch);
+
+        if modifiers.control || modifiers.platform {
+            // c/x/v are routed through `on_key_down`, where the clipboard is
+            // available; the rest have no meaning in a single-line field.
+            match key {
+                "a" => self.save_name_select_all(),
+                "backspace" => self.save_name_backspace(),
+                "delete" => self.save_name_delete(),
+                "left" | "right" | "home" | "end" => self.save_name_move(key, modifiers.shift),
+                _ => {}
+            }
+            return true;
+        }
+        if modifiers.alt {
+            return true;
+        }
+
+        match key {
+            "backspace" => self.save_name_backspace(),
+            "delete" => self.save_name_delete(),
+            "left" | "right" | "home" | "end" => self.save_name_move(key, modifiers.shift),
+            "space" => self.save_name_insert(" "),
+            _ => {
+                if let Some(ch) = printable_char(key, key_char) {
+                    self.save_name_insert(&ch);
+                }
+            }
         }
         true
     }
@@ -2730,6 +2974,25 @@ fn printable_char(key: &str, key_char: Option<String>) -> Option<String> {
         Some(c) if !c.is_empty() => Some(c),
         _ if key.chars().count() == 1 => Some(key.to_string()),
         _ => None,
+    }
+}
+
+/// The byte offset of the `char` boundary immediately before `index`, so caret
+/// movement never lands inside a multi-byte character.
+fn char_boundary_before(text: &str, index: usize) -> usize {
+    text[..index.min(text.len())]
+        .char_indices()
+        .next_back()
+        .map(|(offset, _)| offset)
+        .unwrap_or(0)
+}
+
+/// The byte offset of the `char` boundary immediately after `index`.
+fn char_boundary_after(text: &str, index: usize) -> usize {
+    let index = index.min(text.len());
+    match text[index..].chars().next() {
+        Some(ch) => index + ch.len_utf8(),
+        None => index,
     }
 }
 
@@ -3496,6 +3759,27 @@ impl Render for Editor {
                 let char = e.keystroke.key_char.clone();
                 let modifiers = e.keystroke.modifiers;
 
+                // The "Save to…" filename field owns the clipboard while the
+                // modal is up; without this the element clipboard below would
+                // paste onto the canvas behind it.
+                if this.show_save_dialog && (modifiers.control || modifiers.platform) {
+                    match key.as_str() {
+                        "c" => {
+                            this.save_name_copy(cx);
+                            return;
+                        }
+                        "x" => {
+                            this.save_name_cut(cx);
+                            return;
+                        }
+                        "v" => {
+                            this.save_name_paste(cx);
+                            return;
+                        }
+                        _ => {}
+                    }
+                }
+
                 if (modifiers.control || modifiers.platform) && !modifiers.shift && key == "v" {
                     if this.editing_text.is_none() && this.document.has_clipboard() {
                     } else {
@@ -4080,6 +4364,51 @@ impl Editor {
                     this.show_menu = false;
                 })),
             )
+            .when(self.scene_store.is_some(), |menu| {
+                menu.child(
+                    chrome::menu_row_with(
+                        "fm-store-save",
+                        Some("ExportIcon"),
+                        &t("menu.save"),
+                        Some("Ctrl+Shift+S"),
+                        false,
+                        tokens,
+                    )
+                    .on_click(Self::act(cx, |this, _, _, _| {
+                        let name = this.project_name_value();
+                        this.status = Some(match this.save_to_store(&name) {
+                            Ok(()) => format!("{}: {name}", this.i18n.t("menu.save")),
+                            Err(err) => err,
+                        });
+                        this.show_menu = false;
+                    })),
+                )
+                .child(
+                    chrome::menu_row_with(
+                        "fm-store-open",
+                        Some("LoadIcon"),
+                        &t("menu.open"),
+                        Some("Ctrl+Shift+O"),
+                        false,
+                        tokens,
+                    )
+                    .on_click(Self::act(cx, |this, _, _, _| {
+                        this.status = match &this.scene_store {
+                            Some(store) => match (store.load)() {
+                                Ok(docs) => docs.first().map(|(name, json)| {
+                                    match this.load_scene_json(json) {
+                                        Ok(()) => format!("{}: {name}", this.i18n.t("menu.open")),
+                                        Err(err) => err,
+                                    }
+                                }),
+                                Err(err) => Some(err),
+                            },
+                            None => Some("no scene store installed".to_string()),
+                        };
+                        this.show_menu = false;
+                    })),
+                )
+            })
             .child(
                 chrome::menu_row_with(
                     "fm-png",
@@ -6133,6 +6462,50 @@ impl Editor {
 
         use crate::design::size::save_dialog as d;
 
+        // Split the field into the runs the caret and selection divide it
+        // into. Centering the runs as a flex row keeps the text centred
+        // without measuring glyphs, which is enough for a single-line field.
+        let name = self.project_name.as_str();
+        let name_len = name.len();
+        let caret = self.name_caret.min(name_len);
+        let (sel_start, sel_end) = self.save_name_range();
+        let caret_color = tokens.surface_text();
+        let caret_element = || {
+            div()
+                .flex_shrink_0()
+                .w(px(1.0))
+                .h(px(d::NAME_FIELD_FONT))
+                .bg(caret_color)
+                .with_animation(
+                    "save-name-caret",
+                    Animation::new(std::time::Duration::from_millis(1000)).repeat_synced(),
+                    |el, progress| el.opacity(if progress < 0.5 { 1.0 } else { 0.0 }),
+                )
+                .into_any_element()
+        };
+
+        let mut cuts = [0usize, name_len, caret, sel_start, sel_end];
+        cuts.sort_unstable();
+
+        let mut runs: Vec<gpui_kit::AnyElement> = Vec::new();
+        for pair in cuts.windows(2) {
+            let (start, end) = (pair[0], pair[1]);
+            if start >= end {
+                continue;
+            }
+            if start == caret {
+                runs.push(caret_element());
+            }
+            let mut run = div().child(SharedString::from(name[start..end].to_string()));
+            if start < sel_end && sel_start < end {
+                run = run.bg(tokens.selected_bg()).text_color(tokens.selected_fg());
+            }
+            runs.push(run.into_any_element());
+        }
+        if caret == name_len {
+            runs.push(caret_element());
+        }
+
         let project_name = div()
             .flex()
             .flex_col()
@@ -6151,8 +6524,10 @@ impl Editor {
                     .aria_label(SharedString::from(t("labels.fileTitle")))
                     .aria_value(SharedString::from(self.project_name_value()))
                     .flex()
+                    .flex_row()
                     .items_center()
                     .justify_center()
+                    .overflow_hidden()
                     .w(px(d::NAME_FIELD_W))
                     .h(px(d::NAME_FIELD_H))
                     .px(px(d::NAME_FIELD_PAD))
@@ -6164,7 +6539,7 @@ impl Editor {
                     .text_size(px(d::NAME_FIELD_FONT))
                     .text_center()
                     .text_color(tokens.surface_text())
-                    .child(SharedString::from(self.project_name_value())),
+                    .children(runs),
             );
 
         let card = div()

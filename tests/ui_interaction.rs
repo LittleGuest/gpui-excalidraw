@@ -418,6 +418,81 @@ fn export_dialog_owns_the_keyboard() {
 }
 
 #[test]
+fn export_dialog_edits_at_the_caret() {
+    let mut e = Editor::new();
+    e.open_save_dialog();
+    let seeded = e.project_name_value();
+
+    // Home parks the caret at the start, so typing there prepends.
+    assert!(e.handle_key("home", None, plain(), VP));
+    assert!(e.handle_key("A", Some("A".to_string()), plain(), VP));
+    assert_eq!(e.project_name_value(), format!("A{seeded}"));
+
+    // End parks it at the end, so typing there appends.
+    assert!(e.handle_key("end", None, plain(), VP));
+    assert!(e.handle_key("B", Some("B".to_string()), plain(), VP));
+    assert_eq!(e.project_name_value(), format!("A{seeded}B"));
+
+    // Delete removes the character after the caret; backspace the one before.
+    assert!(e.handle_key("home", None, plain(), VP));
+    assert!(e.handle_key("delete", None, plain(), VP));
+    assert_eq!(e.project_name_value(), format!("{seeded}B"));
+    assert!(e.handle_key("end", None, plain(), VP));
+    assert!(e.handle_key("backspace", None, plain(), VP));
+    assert_eq!(e.project_name_value(), seeded);
+
+    // Left/right step one character at a time.
+    assert!(e.handle_key("left", None, plain(), VP));
+    assert!(e.handle_key("C", Some("C".to_string()), plain(), VP));
+    let split = seeded.len() - 1;
+    assert_eq!(
+        e.project_name_value(),
+        format!("{}{}{}", &seeded[..split], "C", &seeded[split..])
+    );
+}
+
+#[test]
+fn export_dialog_select_all_replaces_the_name() {
+    let mut e = Editor::new();
+    e.open_save_dialog();
+
+    assert!(e.handle_key("a", None, with_ctrl(), VP));
+    assert!(e.handle_key("Z", Some("Z".to_string()), plain(), VP));
+    assert_eq!(e.project_name_value(), "Z", "typing must replace the selection");
+
+    // Left collapses the selection to its start rather than stepping a char.
+    let mut e = Editor::new();
+    e.open_save_dialog();
+    assert!(e.handle_key("a", None, with_ctrl(), VP));
+    assert!(e.handle_key("left", None, plain(), VP));
+    assert!(e.handle_key("Z", Some("Z".to_string()), plain(), VP));
+    assert!(e.project_name_value().starts_with('Z'));
+    assert!(!e.project_name_value().ends_with('Z'), "the selection survived");
+}
+
+#[test]
+fn export_dialog_caret_respects_character_boundaries() {
+    let mut e = Editor::new();
+    e.open_save_dialog();
+    let seeded = e.project_name_value();
+
+    assert!(e.handle_key("home", None, plain(), VP));
+    assert!(e.handle_key("中", Some("中".to_string()), plain(), VP));
+    assert_eq!(e.project_name_value(), format!("中{seeded}"));
+
+    // The caret sits after a three-byte character; backspace has to remove the
+    // whole character instead of a single byte.
+    assert!(e.handle_key("backspace", None, plain(), VP));
+    assert_eq!(e.project_name_value(), seeded);
+
+    assert!(e.handle_key("home", None, plain(), VP));
+    assert!(e.handle_key("right", None, plain(), VP));
+    assert!(e.handle_key("left", None, plain(), VP));
+    assert!(e.handle_key("delete", None, plain(), VP));
+    assert_eq!(e.project_name_value(), &seeded[1..]);
+}
+
+#[test]
 fn export_dialog_saves_through_the_picked_path() {
     let mut e = Editor::new();
     e.document.scene.add(rect("a", 0.0, 0.0, 10.0, 10.0));
