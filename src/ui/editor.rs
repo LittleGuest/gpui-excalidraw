@@ -150,10 +150,13 @@ pub struct Editor {
     scene_store: Option<SceneStore>,
 }
 
+type SceneSaveFn = Box<dyn Fn(&str, &str) -> Result<(), String>>;
+type SceneLoadFn = Box<dyn Fn() -> Result<Vec<(String, String)>, String>>;
+
 /// Host-provided synchronous persistence for the scene document.
 pub struct SceneStore {
-    save: Box<dyn Fn(&str, &str) -> Result<(), String>>,
-    load: Box<dyn Fn() -> Result<Vec<(String, String)>, String>>,
+    save: SceneSaveFn,
+    load: SceneLoadFn,
 }
 
 impl Editor {
