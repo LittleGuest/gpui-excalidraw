@@ -6977,7 +6977,9 @@ impl Editor {
             }
             let mut run = div().child(SharedString::from(name[start..end].to_string()));
             if start < sel_end && sel_start < end {
-                run = run.bg(tokens.selected_bg()).text_color(tokens.selected_fg());
+                run = run
+                    .bg(tokens.selected_bg())
+                    .text_color(tokens.selected_fg());
             }
             runs.push(run.into_any_element());
         }
@@ -7105,9 +7107,17 @@ impl Editor {
                 .h(px(d::SWITCH_H))
                 .p(px(2.0))
                 .rounded_full()
-                .bg(if on { tokens.accent() } else { tokens.surface_low() })
+                .bg(if on {
+                    tokens.accent()
+                } else {
+                    tokens.surface_low()
+                })
                 .border_1()
-                .border_color(if on { tokens.accent() } else { tokens.input_border() })
+                .border_color(if on {
+                    tokens.accent()
+                } else {
+                    tokens.input_border()
+                })
                 .when(on, |s| s.justify_end())
                 .child(
                     div()
@@ -7118,7 +7128,11 @@ impl Editor {
                             d::SWITCH_THUMB
                         }))
                         .rounded_full()
-                        .bg(if on { rgb(0xffffff) } else { tokens.surface_text() }),
+                        .bg(if on {
+                            rgb(0xffffff)
+                        } else {
+                            tokens.surface_text()
+                        }),
                 )
                 .into_any_element()
         };
@@ -7142,7 +7156,11 @@ impl Editor {
                     div()
                         .id("export-embed-help")
                         .aria_label(SharedString::from(tip))
-                        .child(crate::icons::icon("helpIcon", d::SETTING_ICON, tokens.gray_60())),
+                        .child(crate::icons::icon(
+                            "helpIcon",
+                            d::SETTING_ICON,
+                            tokens.gray_60(),
+                        )),
                 );
             }
             div()
@@ -7252,7 +7270,9 @@ impl Editor {
                     .rounded(px(d::RADIO_ITEM_RADIUS))
                     .text_size(px(d::RADIO_FONT))
                     .cursor_pointer()
-                    .when(selected, |s| s.bg(tokens.accent()).text_color(rgb(0xffffff)))
+                    .when(selected, |s| {
+                        s.bg(tokens.accent()).text_color(rgb(0xffffff))
+                    })
                     .when(!selected, |s| s.text_color(tokens.surface_text()))
                     .child(SharedString::from(format!("{}×", value as i32)))
                     .on_click(Self::act(cx, move |this, _, _, _| {

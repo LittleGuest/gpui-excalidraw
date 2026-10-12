@@ -131,7 +131,13 @@ fn test_export_svg_embeds_the_hand_drawn_font() {
     use gpui_excalidraw::core::factory::{ElementOptions, new_text};
 
     let mut scene = Scene::new();
-    scene.add(new_text(0.0, 0.0, "Hello", 20.0, &ElementOptions::default()));
+    scene.add(new_text(
+        0.0,
+        0.0,
+        "Hello",
+        20.0,
+        &ElementOptions::default(),
+    ));
 
     let svg = export_svg(&scene, "#ffffff");
     assert!(

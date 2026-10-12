@@ -921,7 +921,10 @@ fn export_image_raises_the_dialog(cx: &mut TestAppContext) {
         window.click("export-row-dark-mode", cx);
         window.render_frame(cx);
         content.update(cx, |editor, _| {
-            assert!(editor.export_dark_mode(), "the dark mode switch did not flip");
+            assert!(
+                editor.export_dark_mode(),
+                "the dark mode switch did not flip"
+            );
         });
 
         // Choosing a scale updates the export scale.
