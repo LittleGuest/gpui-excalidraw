@@ -127,6 +127,24 @@ fn test_export_svg() {
 }
 
 #[test]
+fn test_export_svg_embeds_the_hand_drawn_font() {
+    use gpui_excalidraw::core::factory::{ElementOptions, new_text};
+
+    let mut scene = Scene::new();
+    scene.add(new_text(0.0, 0.0, "Hello", 20.0, &ElementOptions::default()));
+
+    let svg = export_svg(&scene, "#ffffff");
+    assert!(
+        svg.contains("@font-face") && svg.contains("font-family:'Excalifont'"),
+        "the export must carry the Excalifont face so viewers outside this app still draw it"
+    );
+    assert!(
+        svg.contains("font-family=\"Excalifont, sans-serif\""),
+        "text must ask for the hand-drawn family, not a system fallback"
+    );
+}
+
+#[test]
 fn test_scene_to_json_has_excalidraw_metadata() {
     let scene = scene_with_elements();
     let json = scene_to_json(&scene, &AppState::default()).unwrap();

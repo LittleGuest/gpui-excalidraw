@@ -458,7 +458,11 @@ fn export_dialog_select_all_replaces_the_name() {
 
     assert!(e.handle_key("a", None, with_ctrl(), VP));
     assert!(e.handle_key("Z", Some("Z".to_string()), plain(), VP));
-    assert_eq!(e.project_name_value(), "Z", "typing must replace the selection");
+    assert_eq!(
+        e.project_name_value(),
+        "Z",
+        "typing must replace the selection"
+    );
 
     // Left collapses the selection to its start rather than stepping a char.
     let mut e = Editor::new();
@@ -467,7 +471,10 @@ fn export_dialog_select_all_replaces_the_name() {
     assert!(e.handle_key("left", None, plain(), VP));
     assert!(e.handle_key("Z", Some("Z".to_string()), plain(), VP));
     assert!(e.project_name_value().starts_with('Z'));
-    assert!(!e.project_name_value().ends_with('Z'), "the selection survived");
+    assert!(
+        !e.project_name_value().ends_with('Z'),
+        "the selection survived"
+    );
 }
 
 #[test]
@@ -522,6 +529,56 @@ fn export_dialog_saves_through_the_picked_path() {
     );
 
     let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn export_image_shortcut_requests_the_dialog() {
+    let mut e = Editor::new();
+    e.document.scene.add(rect("a", 0.0, 0.0, 10.0, 10.0));
+    let mut mods = with_ctrl();
+    mods.shift = true;
+
+    assert!(!e.image_dialog_pending());
+    assert!(e.handle_key("e", None, mods, VP));
+    assert!(
+        e.image_dialog_pending(),
+        "Ctrl+Shift+E has to raise the dialog instead of writing a fixed path"
+    );
+    assert!(!e.image_dialog_open(), "the modal opens on the next frame");
+    assert_eq!(e.status_text(), None, "nothing may be written yet");
+}
+
+#[test]
+fn export_image_dialog_defaults_and_dismissal() {
+    let mut e = Editor::new();
+    e.open_image_dialog();
+    assert!(e.image_dialog_open());
+    assert!(e.project_name_value().starts_with("Untitled-"));
+    assert_eq!(e.export_scale(), 1.0);
+    assert!(e.export_with_background());
+    assert!(!e.export_dark_mode());
+    assert!(!e.export_embed_scene());
+    assert!(!e.export_only_selected());
+
+    assert!(e.handle_key("escape", None, plain(), VP));
+    assert!(!e.image_dialog_open(), "Escape dismisses the modal");
+}
+
+#[test]
+fn export_image_dialog_owns_the_keyboard() {
+    let mut e = Editor::new();
+    e.open_image_dialog();
+    let seeded = e.project_name_value();
+    let tool = e.document.tool;
+
+    assert!(e.handle_key("backspace", None, plain(), VP));
+    assert_eq!(e.project_name_value().len(), seeded.len() - 1);
+    assert!(e.handle_key("x", Some("x".to_string()), plain(), VP));
+    assert!(e.project_name_value().ends_with('x'));
+    assert_eq!(
+        e.document.tool, tool,
+        "the letter must not reach the canvas"
+    );
 }
 
 #[test]

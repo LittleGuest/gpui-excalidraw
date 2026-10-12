@@ -28,7 +28,7 @@ This is a **single Rust library crate** that reimplements Excalidraw — the han
 The whole package lives at the repository root:
 
 ```
-Cargo.toml             Single package: lib `gpui_excalidraw` + bin `excalidraw-example`
+Cargo.toml             Single package: lib `gpui_excalidraw` + bin `excalidraw_example`
 build.rs               Embeds assets/icons/*.svg into `ui::icons`
 assets/                icons/ (128 upstream glyphs) + fonts/ (Excalifont, Virgil)
 src/
@@ -50,7 +50,7 @@ The layer directories are declared through `#[path]` in `src/core/lib.rs`,
 
 ```bash
 # Run the full editor application (requires a desktop environment)
-cargo run --bin excalidraw-example
+cargo run --bin excalidraw_example
 
 # Run all tests (unit + integration + headless UI tests)
 cargo test

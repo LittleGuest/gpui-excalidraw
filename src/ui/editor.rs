@@ -10,7 +10,7 @@ use crate::{
         element::{ConvertTarget, Element},
         factory::*,
         geometry::Point,
-        scene::AppState,
+        scene::{AppState, Scene},
         types::{FontFamily, Theme},
     },
     design::{Tokens, size},
@@ -123,6 +123,16 @@ pub struct Editor {
 
     pending_scene_save: bool,
 
+    show_image_dialog: bool,
+    pending_image_dialog: bool,
+    export_scale: f32,
+    export_with_background: bool,
+    export_dark_mode: bool,
+    export_embed_scene: bool,
+    export_only_selected: bool,
+    /// Rasterized snapshot of the scene shown in the export dialog preview.
+    export_preview: Option<Arc<RenderImage>>,
+
     color_popup: Option<ColorTarget>,
 
     shade_stroke: usize,
@@ -210,6 +220,14 @@ impl Editor {
             name_caret: 0,
             name_anchor: 0,
             pending_scene_save: false,
+            show_image_dialog: false,
+            pending_image_dialog: false,
+            export_scale: 1.0,
+            export_with_background: true,
+            export_dark_mode: false,
+            export_embed_scene: false,
+            export_only_selected: false,
+            export_preview: None,
             color_popup: None,
             shade_stroke: crate::theme::DEFAULT_STROKE_SHADE,
             shade_background: crate::theme::DEFAULT_BACKGROUND_SHADE,
@@ -1998,6 +2016,221 @@ impl Editor {
         .detach();
     }
 
+    pub fn image_dialog_open(&self) -> bool {
+        self.show_image_dialog
+    }
+
+    pub fn image_dialog_pending(&self) -> bool {
+        self.pending_image_dialog
+    }
+
+    pub fn export_scale(&self) -> f32 {
+        self.export_scale
+    }
+
+    pub fn export_with_background(&self) -> bool {
+        self.export_with_background
+    }
+
+    pub fn export_dark_mode(&self) -> bool {
+        self.export_dark_mode
+    }
+
+    pub fn export_embed_scene(&self) -> bool {
+        self.export_embed_scene
+    }
+
+    pub fn export_only_selected(&self) -> bool {
+        self.export_only_selected
+    }
+
+    pub fn open_image_dialog(&mut self) {
+        if self.project_name.is_empty() {
+            self.project_name = self.untitled_name();
+        }
+        self.name_caret = self.project_name.len();
+        self.name_anchor = self.name_caret;
+        self.show_image_dialog = true;
+        self.refresh_export_preview();
+    }
+
+    pub fn close_image_dialog(&mut self) {
+        self.show_image_dialog = false;
+        self.export_preview = None;
+    }
+
+    /// The elements the export dialog is currently pointed at: the whole scene,
+    /// or just the selection when "only selected" is on.
+    fn export_scene(&self) -> Scene {
+        if !self.export_only_selected {
+            return self.document.scene.clone();
+        }
+        let mut scene = Scene::new();
+        for element in self.document.scene.non_deleted() {
+            if self.document.selected.contains(element.id()) {
+                scene.add(element.clone());
+            }
+        }
+        scene
+    }
+
+    fn export_dialog_background(&self) -> &str {
+        if self.export_with_background {
+            self.export_background()
+        } else {
+            "transparent"
+        }
+    }
+
+    /// Rasterize the scene once so the dialog can show it without re-exporting
+    /// on every frame.
+    fn refresh_export_preview(&mut self) {
+        let scene = self.export_scene();
+        let background = self.export_dialog_background().to_string();
+        self.export_preview = crate::render::export::export_png_with_options(
+            &scene,
+            &background,
+            1.0,
+            &self.document.files,
+            self.export_dark_mode,
+        )
+        .ok()
+        .and_then(|bytes| crate::bitmap::decode_render_image(&bytes, "image/png"));
+    }
+
+    fn export_dialog_png_bytes(&self) -> Result<Vec<u8>, String> {
+        let scene = self.export_scene();
+        let background = self.export_dialog_background().to_string();
+        let mut bytes = crate::render::export::export_png_with_options(
+            &scene,
+            &background,
+            self.export_scale,
+            &self.document.files,
+            self.export_dark_mode,
+        )?;
+        if self.export_embed_scene {
+            let json = crate::export::scene_to_json(&scene, &self.app_state())
+                .map_err(|e| e.to_string())?;
+            bytes = crate::render::export::embed_png_scene_data(&bytes, &json);
+        }
+        Ok(bytes)
+    }
+
+    fn export_dialog_svg_string(&self) -> String {
+        let scene = self.export_scene();
+        let background = self.export_dialog_background().to_string();
+        let mut svg = crate::export::export_svg_with_dark_mode(
+            &scene,
+            &background,
+            &self.document.files,
+            self.export_dark_mode,
+        );
+        if self.export_embed_scene
+            && let Ok(json) = crate::export::scene_to_json(&scene, &self.app_state())
+        {
+            svg = crate::render::export::embed_svg_scene_data(&svg, &json);
+        }
+        svg
+    }
+
+    fn export_dialog_file_name(&self, extension: &str) -> String {
+        let name = self.project_name_value();
+        let base = name.rsplit_once('.').map(|(stem, _)| stem).unwrap_or(&name);
+        format!("{base}.{extension}")
+    }
+
+    fn export_png_picker(&mut self, cx: &mut Context<Self>) {
+        let name = self.export_dialog_file_name("png");
+        let directory = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        let receiver = cx.prompt_for_new_path(&directory, Some(name.as_str()));
+        cx.spawn(async move |this, cx| match receiver.await {
+            Ok(Ok(Some(path))) => {
+                let path = path.to_string_lossy().to_string();
+                let _ = this.update(cx, |editor, cx| {
+                    match editor.export_dialog_png_bytes() {
+                        Ok(bytes) => match std::fs::write(&path, bytes) {
+                            Ok(()) => {
+                                editor.status = Some(format!("png: {path}"));
+                                editor.close_image_dialog();
+                            }
+                            Err(err) => editor.status = Some(err.to_string()),
+                        },
+                        Err(err) => editor.status = Some(err),
+                    }
+                    cx.notify();
+                });
+            }
+            Ok(Err(_)) => {
+                let _ = this.update(cx, |editor, cx| {
+                    editor.status = Some(editor.i18n.t("status.unavailable"));
+                    cx.notify();
+                });
+            }
+            _ => {}
+        })
+        .detach();
+    }
+
+    fn export_svg_picker(&mut self, cx: &mut Context<Self>) {
+        let name = self.export_dialog_file_name("svg");
+        let directory = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        let receiver = cx.prompt_for_new_path(&directory, Some(name.as_str()));
+        cx.spawn(async move |this, cx| match receiver.await {
+            Ok(Ok(Some(path))) => {
+                let path = path.to_string_lossy().to_string();
+                let _ = this.update(cx, |editor, cx| {
+                    let svg = editor.export_dialog_svg_string();
+                    match std::fs::write(&path, svg) {
+                        Ok(()) => {
+                            editor.status = Some(format!("svg: {path}"));
+                            editor.close_image_dialog();
+                        }
+                        Err(err) => editor.status = Some(err.to_string()),
+                    }
+                    cx.notify();
+                });
+            }
+            Ok(Err(_)) => {
+                let _ = this.update(cx, |editor, cx| {
+                    editor.status = Some(editor.i18n.t("status.unavailable"));
+                    cx.notify();
+                });
+            }
+            _ => {}
+        })
+        .detach();
+    }
+
+    fn export_dialog_copy_png(&mut self, cx: &App) {
+        match self.export_dialog_png_bytes() {
+            Ok(bytes) => {
+                // The clipboard takes the encoded PNG plus a unique id so the
+                // receiver can tell consecutive copies apart.
+                let image = Image {
+                    format: ImageFormat::Png,
+                    bytes,
+                    id: CLIPBOARD_IMAGE_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+                };
+                cx.write_to_clipboard(ClipboardItem::new_image(&image));
+                self.status = Some("png: clipboard".to_string());
+            }
+            Err(err) => self.status = Some(err),
+        }
+    }
+
+    fn handle_export_key(
+        &mut self,
+        key: &str,
+        key_char: Option<String>,
+        modifiers: Modifiers,
+    ) -> bool {
+        if key == "escape" {
+            self.close_image_dialog();
+            return true;
+        }
+        self.handle_name_field_key(key, key_char, modifiers)
+    }
+
     pub fn export_png_bytes(&self, scale: f32) -> Result<Vec<u8>, String> {
         crate::export::export_png_with_files(
             &self.document.scene,
@@ -2049,6 +2282,9 @@ impl Editor {
 
         if self.show_save_dialog {
             return self.handle_save_key(key, key_char, modifiers);
+        }
+        if self.show_image_dialog {
+            return self.handle_export_key(key, key_char, modifiers);
         }
         if self.show_link_dialog {
             return self.handle_link_key(key, key_char, modifiers);
@@ -2150,7 +2386,7 @@ impl Editor {
                     return true;
                 }
                 "e" if modifiers.shift => {
-                    let _ = self.export_png_to("excalidraw-export.png");
+                    self.pending_image_dialog = true;
                     return true;
                 }
                 "/" => {
@@ -2735,6 +2971,17 @@ impl Editor {
             return true;
         }
 
+        self.handle_name_field_key(key, key_char, modifiers)
+    }
+
+    /// Edits the shared file-name field used by both the save and the export
+    /// dialogs: caret movement, selection, deletion and character input.
+    fn handle_name_field_key(
+        &mut self,
+        key: &str,
+        key_char: Option<String>,
+        modifiers: Modifiers,
+    ) -> bool {
         if modifiers.control || modifiers.platform {
             // c/x/v are routed through `on_key_down`, where the clipboard is
             // available; the rest have no meaning in a single-line field.
@@ -3211,6 +3458,10 @@ const ARROW_TOOL_ICON: &str = "sharpArrowIcon";
 const CARD_LIME: u32 = 0x74b816;
 const CARD_LIME_DARKER: u32 = 0x66a80f;
 
+/// Monotonic id handed to copied images so repeated clipboard writes are not
+/// mistaken for the same asset.
+static CLIPBOARD_IMAGE_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
 fn position_beside_cursor(
     cursor: (f64, f64),
     element: (f64, f64),
@@ -3327,6 +3578,10 @@ impl Render for Editor {
         if self.pending_scene_save {
             self.pending_scene_save = false;
             self.save_scene_picker(cx);
+        }
+        if self.pending_image_dialog {
+            self.pending_image_dialog = false;
+            self.open_image_dialog();
         }
         let active_tool = self.document.tool;
         let zoom_pct = (self.document.zoom * 100.0).round() as i32;
@@ -3759,10 +4014,12 @@ impl Render for Editor {
                 let char = e.keystroke.key_char.clone();
                 let modifiers = e.keystroke.modifiers;
 
-                // The "Save to…" filename field owns the clipboard while the
-                // modal is up; without this the element clipboard below would
-                // paste onto the canvas behind it.
-                if this.show_save_dialog && (modifiers.control || modifiers.platform) {
+                // The filename field of the save and export modals owns the clipboard
+                // while either is up; without this the element clipboard below
+                // would paste onto the canvas behind them.
+                if (this.show_save_dialog || this.show_image_dialog)
+                    && (modifiers.control || modifiers.platform)
+                {
                     match key.as_str() {
                         "c" => {
                             this.save_name_copy(cx);
@@ -3939,6 +4196,9 @@ impl Render for Editor {
         }
         if self.show_save_dialog {
             root = root.child(self.render_save_dialog(cx));
+        }
+        if self.show_image_dialog {
+            root = root.child(self.render_image_dialog(cx));
         }
         if self.show_palette {
             root = root.child(self.render_palette(cx));
@@ -4419,7 +4679,7 @@ impl Editor {
                     tokens,
                 )
                 .on_click(Self::act(cx, |this, _, _, _| {
-                    let _ = this.export_png_to("excalidraw-export.png");
+                    this.pending_image_dialog = true;
                     this.show_menu = false;
                 })),
             )
@@ -5782,7 +6042,7 @@ impl PaletteAction {
 
             PaletteAction::Open => editor.pending_scene_open = true,
             PaletteAction::ExportPng => {
-                let _ = editor.export_png_to("excalidraw-export.png");
+                editor.pending_image_dialog = true;
             }
             PaletteAction::NewCanvas => editor.on_new_document(),
             PaletteAction::Find => editor.open_find(),
@@ -6498,7 +6758,9 @@ impl Editor {
             }
             let mut run = div().child(SharedString::from(name[start..end].to_string()));
             if start < sel_end && sel_start < end {
-                run = run.bg(tokens.selected_bg()).text_color(tokens.selected_fg());
+                run = run
+                    .bg(tokens.selected_bg())
+                    .text_color(tokens.selected_fg());
             }
             runs.push(run.into_any_element());
         }
@@ -6653,6 +6915,464 @@ impl Editor {
                     .occlude()
                     .bg(tokens.overlay_backdrop())
                     .on_click(Self::act(cx, |this, _, _, _| this.show_save_dialog = false)),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .top(px(0.0))
+                    .left(px(0.0))
+                    .size_full()
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .justify_center()
+                    .p(px(d::MODAL_PADDING))
+                    .child(content),
+            )
+            .into_any_element()
+    }
+
+    const EXPORT_SCALES: [f32; 3] = [1.0, 2.0, 3.0];
+
+    fn render_image_dialog(&self, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
+        let tokens = crate::design::Tokens::for_palette(palette_of(self.document.theme));
+        let t = |k: &str| self.i18n.t(k);
+
+        use crate::design::size::export_dialog as d;
+
+        // The filename field reuses the save dialog's caret and selection
+        // state, so both modals behave identically while typing.
+        let name = self.project_name.as_str();
+        let name_len = name.len();
+        let caret = self.name_caret.min(name_len);
+        let (sel_start, sel_end) = self.save_name_range();
+        let caret_color = tokens.surface_text();
+        let caret_element = || {
+            div()
+                .flex_shrink_0()
+                .w(px(1.0))
+                .h(px(d::NAME_FIELD_FONT))
+                .bg(caret_color)
+                .with_animation(
+                    "export-name-caret",
+                    Animation::new(std::time::Duration::from_millis(1000)).repeat_synced(),
+                    |el, progress| el.opacity(if progress < 0.5 { 1.0 } else { 0.0 }),
+                )
+                .into_any_element()
+        };
+
+        let mut cuts = [0usize, name_len, caret, sel_start, sel_end];
+        cuts.sort_unstable();
+        let mut runs: Vec<gpui_kit::AnyElement> = Vec::new();
+        for pair in cuts.windows(2) {
+            let (start, end) = (pair[0], pair[1]);
+            if start >= end {
+                continue;
+            }
+            if start == caret {
+                runs.push(caret_element());
+            }
+            let mut run = div().child(SharedString::from(name[start..end].to_string()));
+            if start < sel_end && sel_start < end {
+                run = run.bg(tokens.selected_bg()).text_color(tokens.selected_fg());
+            }
+            runs.push(run.into_any_element());
+        }
+        if caret == name_len {
+            runs.push(caret_element());
+        }
+
+        let name_field = div()
+            .id("export-filename")
+            .test_support()
+            .aria_label(SharedString::from(t("labels.fileTitle")))
+            .aria_value(SharedString::from(self.project_name_value()))
+            .flex()
+            .flex_row()
+            .items_center()
+            .justify_center()
+            .overflow_hidden()
+            .mt(px(d::NAME_FIELD_TOP))
+            .w(px(d::NAME_FIELD_W))
+            .h(px(d::NAME_FIELD_H))
+            .px(px(d::NAME_FIELD_PAD))
+            .border(px(1.0))
+            .border_color(tokens.input_border())
+            .hover(move |s| s.border_color(tokens.brand_hover()))
+            .rounded(px(d::NAME_FIELD_RADIUS))
+            .bg(tokens.surface_lowest())
+            .text_size(px(d::NAME_FIELD_FONT))
+            .text_center()
+            .text_color(tokens.surface_text())
+            .children(runs);
+
+        // A checkerboard sits behind the preview so transparent exports read as
+        // transparent rather than white, matching the upstream dialog.
+        let checker = canvas(
+            move |_bounds, _window, _cx| (),
+            move |bounds, _state, window, _cx| {
+                let cell = d::CHECKER as f64;
+                let width = bounds.size.width.to_f64();
+                let height = bounds.size.height.to_f64();
+                let cols = (width / cell).ceil() as i32;
+                let rows = (height / cell).ceil() as i32;
+                for row in 0..rows {
+                    for col in 0..cols {
+                        let light = (row + col) % 2 == 0;
+                        let color = if light {
+                            rgba(0xffffffff)
+                        } else {
+                            rgba(0xf0f0f0ff)
+                        };
+                        let x = bounds.origin.x + px((col as f64 * cell) as f32);
+                        let y = bounds.origin.y + px((row as f64 * cell) as f32);
+                        let w = px(((width - col as f64 * cell).min(cell).max(0.0)) as f32);
+                        let h = px(((height - row as f64 * cell).min(cell).max(0.0)) as f32);
+                        if w <= px(0.0) || h <= px(0.0) {
+                            continue;
+                        }
+                        window.paint_quad(quad(
+                            gpui_kit::Bounds {
+                                origin: gpui_kit::point(x, y),
+                                size: gpui_kit::size(w, h),
+                            },
+                            Corners::default(),
+                            color,
+                            Edges::default(),
+                            transparent_black(),
+                            BorderStyle::default(),
+                        ));
+                    }
+                }
+            },
+        )
+        .absolute()
+        .top(px(0.0))
+        .left(px(0.0))
+        .size_full();
+
+        let preview_image = match &self.export_preview {
+            Some(image) => img(image.clone())
+                .max_w_full()
+                .max_h_full()
+                .object_fit(ObjectFit::Contain)
+                .into_any_element(),
+            None => div()
+                .text_size(px(13.0))
+                .text_color(tokens.gray_60())
+                .child(SharedString::from(t("canvasError.cannotShowPreview")))
+                .into_any_element(),
+        };
+
+        let preview = div()
+            .id("export-preview")
+            .test_support()
+            .relative()
+            .flex_shrink_0()
+            .w_full()
+            .h(px(d::PREVIEW_H))
+            .rounded(px(d::PREVIEW_RADIUS))
+            .border(px(d::PREVIEW_BORDER))
+            .border_color(if tokens.palette.is_dark() {
+                rgb(0x5c5c5c)
+            } else {
+                rgb(0xd6d6d6)
+            })
+            .overflow_hidden()
+            .child(checker)
+            .child(
+                div()
+                    .absolute()
+                    .top(px(0.0))
+                    .left(px(0.0))
+                    .size_full()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .p(px(d::PREVIEW_PAD))
+                    .child(preview_image),
+            );
+
+        let switch = |on: bool| -> gpui_kit::AnyElement {
+            div()
+                .flex()
+                .flex_shrink_0()
+                .items_center()
+                .w(px(d::SWITCH_W))
+                .h(px(d::SWITCH_H))
+                .p(px(2.0))
+                .rounded_full()
+                .bg(if on { tokens.accent() } else { tokens.surface_low() })
+                .border_1()
+                .border_color(if on { tokens.accent() } else { tokens.input_border() })
+                .when(on, |s| s.justify_end())
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .size(px(if on {
+                            d::SWITCH_THUMB_ON
+                        } else {
+                            d::SWITCH_THUMB
+                        }))
+                        .rounded_full()
+                        .bg(if on { rgb(0xffffff) } else { tokens.surface_text() }),
+                )
+                .into_any_element()
+        };
+
+        let setting_row = |id: &'static str,
+                           label: String,
+                           help: Option<String>,
+                           control: gpui_kit::AnyElement,
+                           handler: Handler<ClickEvent>|
+         -> gpui_kit::AnyElement {
+            let mut label_row = div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(px(d::SETTING_ICON_GAP))
+                .text_size(px(d::SETTING_LABEL_FONT))
+                .text_color(tokens.surface_text())
+                .child(SharedString::from(label));
+            if let Some(tip) = help {
+                label_row = label_row.child(
+                    div()
+                        .id("export-embed-help")
+                        .aria_label(SharedString::from(tip))
+                        .child(crate::icons::icon("helpIcon", d::SETTING_ICON, tokens.gray_60())),
+                );
+            }
+            div()
+                .id(id)
+                .test_support()
+                .flex()
+                .flex_row()
+                .items_center()
+                .justify_between()
+                .gap(px(d::SETTINGS_GAP))
+                .w_full()
+                .cursor_pointer()
+                .child(label_row)
+                .child(control)
+                .on_click(handler)
+                .into_any_element()
+        };
+
+        let action_button = |id: &'static str,
+                             icon_name: &'static str,
+                             label: String,
+                             handler: Handler<ClickEvent>|
+         -> gpui_kit::AnyElement {
+            div()
+                .id(id)
+                .test_support()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(px(8.0))
+                .h(px(d::BUTTON_H))
+                .px(px(d::BUTTON_PAD_X))
+                .rounded(px(d::BUTTON_RADIUS))
+                .bg(tokens.accent())
+                .hover(move |s| s.bg(tokens.brand_hover()))
+                .text_size(px(d::BUTTON_FONT))
+                .text_color(rgb(0xffffff))
+                .cursor_pointer()
+                .child(crate::icons::icon(icon_name, d::BUTTON_ICON, rgb(0xffffff)))
+                .child(SharedString::from(label))
+                .on_click(handler)
+                .into_any_element()
+        };
+
+        let mut settings: Vec<gpui_kit::AnyElement> = Vec::new();
+        if !self.document.selected.is_empty() {
+            settings.push(setting_row(
+                "export-row-only-selected",
+                t("imageExportDialog.label.onlySelected"),
+                None,
+                switch(self.export_only_selected),
+                Self::act(cx, |this, _, _, _| {
+                    this.export_only_selected = !this.export_only_selected;
+                    this.refresh_export_preview();
+                }),
+            ));
+        }
+        settings.push(setting_row(
+            "export-row-background",
+            t("imageExportDialog.label.withBackground"),
+            None,
+            switch(self.export_with_background),
+            Self::act(cx, |this, _, _, _| {
+                this.export_with_background = !this.export_with_background;
+                this.refresh_export_preview();
+            }),
+        ));
+        settings.push(setting_row(
+            "export-row-dark-mode",
+            t("imageExportDialog.label.darkMode"),
+            None,
+            switch(self.export_dark_mode),
+            Self::act(cx, |this, _, _, _| {
+                this.export_dark_mode = !this.export_dark_mode;
+                this.refresh_export_preview();
+            }),
+        ));
+        settings.push(setting_row(
+            "export-row-embed-scene",
+            t("imageExportDialog.label.embedScene"),
+            Some(t("imageExportDialog.tooltip.embedScene")),
+            switch(self.export_embed_scene),
+            Self::act(cx, |this, _, _, _| {
+                this.export_embed_scene = !this.export_embed_scene;
+            }),
+        ));
+
+        let current_scale = self.export_scale;
+        let radio = div()
+            .flex()
+            .flex_row()
+            .p(px(d::RADIO_PAD))
+            .rounded(px(d::RADIO_RADIUS))
+            .bg(tokens.surface_low())
+            .children(Self::EXPORT_SCALES.iter().map(|scale| {
+                let value = *scale;
+                let selected = (current_scale - value).abs() < f32::EPSILON;
+                div()
+                    .id(SharedString::from(format!("export-scale-{}", value as i32)))
+                    .test_support()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .h(px(d::RADIO_ITEM_H))
+                    .min_w(px(d::RADIO_ITEM_MIN_W))
+                    .px(px(8.0))
+                    .rounded(px(d::RADIO_ITEM_RADIUS))
+                    .text_size(px(d::RADIO_FONT))
+                    .cursor_pointer()
+                    .when(selected, |s| s.bg(tokens.accent()).text_color(rgb(0xffffff)))
+                    .when(!selected, |s| s.text_color(tokens.surface_text()))
+                    .child(SharedString::from(format!("{}×", value as i32)))
+                    .on_click(Self::act(cx, move |this, _, _, _| {
+                        this.export_scale = value;
+                    }))
+            }));
+        settings.push(
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .justify_between()
+                .gap(px(d::SETTINGS_GAP))
+                .w_full()
+                .child(
+                    div()
+                        .text_size(px(d::SETTING_LABEL_FONT))
+                        .text_color(tokens.surface_text())
+                        .child(SharedString::from(t("imageExportDialog.label.scale"))),
+                )
+                .child(radio)
+                .into_any_element(),
+        );
+
+        let actions = div()
+            .flex()
+            .flex_row()
+            .flex_wrap()
+            .gap(px(d::BUTTON_GAP))
+            .mt(px(d::BUTTON_ROW_TOP))
+            .child(action_button(
+                "export-btn-png",
+                "downloadIcon",
+                t("imageExportDialog.button.exportToPng"),
+                Self::act(cx, |this, _, _, cx| this.export_png_picker(cx)),
+            ))
+            .child(action_button(
+                "export-btn-svg",
+                "downloadIcon",
+                t("imageExportDialog.button.exportToSvg"),
+                Self::act(cx, |this, _, _, cx| this.export_svg_picker(cx)),
+            ))
+            .child(action_button(
+                "export-btn-copy",
+                "copyIcon",
+                t("imageExportDialog.button.copyPngToClipboard"),
+                Self::act(cx, |this, _, _, cx| {
+                    this.export_dialog_copy_png(cx);
+                }),
+            ));
+
+        let content = div()
+            .flex()
+            .flex_col()
+            .w(px(d::WIDTH))
+            .max_w_full()
+            .p(px(d::CONTENT_PADDING))
+            .bg(tokens.island())
+            .border_1()
+            .border_color(tokens.dialog_border())
+            .rounded(px(d::RADIUS))
+            .shadow(crate::design::modal_shadow())
+            .occlude()
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .gap(px(d::PREVIEW_GAP))
+                    .w_full()
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .flex_shrink_0()
+                            .w(gpui_kit::relative(0.55))
+                            .child(preview)
+                            .child(name_field),
+                    )
+                    .child(
+                        div()
+                            .id("export-settings")
+                            .test_support()
+                            .flex()
+                            .flex_col()
+                            .flex_1()
+                            .min_w(px(0.0))
+                            .child(
+                                div()
+                                    .text_size(px(d::HEADER_FONT))
+                                    .font_bold()
+                                    .text_color(tokens.surface_text())
+                                    .child(SharedString::from(t("imageExportDialog.header"))),
+                            )
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .gap(px(d::SETTINGS_GAP))
+                                    .mt(px(d::SETTINGS_GAP))
+                                    .w_full()
+                                    .children(settings),
+                            )
+                            .child(div().flex_1())
+                            .child(actions),
+                    ),
+            );
+
+        div()
+            .absolute()
+            .top(px(0.0))
+            .left(px(0.0))
+            .size_full()
+            .child(
+                div()
+                    .id("image-dialog-backdrop")
+                    .test_support()
+                    .absolute()
+                    .top(px(0.0))
+                    .left(px(0.0))
+                    .size_full()
+                    .occlude()
+                    .bg(tokens.overlay_backdrop())
+                    .on_click(Self::act(cx, |this, _, _, _| this.close_image_dialog())),
             )
             .child(
                 div()

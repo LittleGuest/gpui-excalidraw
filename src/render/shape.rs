@@ -3,7 +3,9 @@ use crate::{
         arrowhead::Arrowhead,
         element::{Element, ElementType, FreeDrawElement},
         geometry::Point,
-        types::{FillStyle, FontFamily, Roundness, StrokeStyle, TextAlign, VerticalAlign},
+        types::{
+            FillStyle, FontFamily, Roundness, RoundnessType, StrokeStyle, TextAlign, VerticalAlign,
+        },
     },
     render::rough::{self, PathSeg, RoughOptions, RoughSeed},
 };
@@ -361,28 +363,58 @@ pub fn rough_rectangle(x: f64, y: f64, w: f64, h: f64, options: &DrawOptions) ->
 }
 
 fn corner_radius(dim: f64, roundness: Option<Roundness>) -> f64 {
+    // Mirror upstream getCornerRadius so exported corners match the editor: legacy
+    // and proportional corners take 25% of the shorter side, while adaptive corners
+    // stay proportional until the side passes the 4x cutoff, then clamp to a fixed
+    // radius (32px unless the element overrides it).
+    const DEFAULT_PROPORTIONAL_RADIUS: f64 = 0.25;
+    const DEFAULT_ADAPTIVE_RADIUS: f64 = 32.0;
     match roundness {
         None => 0.0,
-        Some(r) => {
-            let v = r.value.unwrap_or(0.0);
-            (dim * v).min(dim / 2.0)
-        }
+        Some(r) => match r.kind {
+            RoundnessType::Legacy | RoundnessType::ProportionalRadius => {
+                dim * DEFAULT_PROPORTIONAL_RADIUS
+            }
+            RoundnessType::AdaptiveRadius => {
+                let fixed = r.value.unwrap_or(DEFAULT_ADAPTIVE_RADIUS);
+                if dim <= fixed / DEFAULT_PROPORTIONAL_RADIUS {
+                    dim * DEFAULT_PROPORTIONAL_RADIUS
+                } else {
+                    fixed
+                }
+            }
+        },
     }
+}
+
+fn quad_to_cubic(p0: (f64, f64), c: (f64, f64), p2: (f64, f64)) -> (f64, f64, f64, f64) {
+    // Exact quadratic-to-cubic elevation, matching rough.js quadraticCurveTo so the
+    // rounded rectangle outline traces the same curve as the upstream renderer.
+    (
+        p0.0 + (2.0 / 3.0) * (c.0 - p0.0),
+        p0.1 + (2.0 / 3.0) * (c.1 - p0.1),
+        p2.0 + (2.0 / 3.0) * (c.0 - p2.0),
+        p2.1 + (2.0 / 3.0) * (c.1 - p2.1),
+    )
 }
 
 fn rounded_rect_segments(x: f64, y: f64, w: f64, h: f64, r: f64) -> Vec<PathSeg> {
     let rr = r.min(w / 2.0).min(h / 2.0).max(0.0);
     let (x2, y2) = (x + w, y + h);
+    let (a, b, c, d) = quad_to_cubic((x2 - rr, y), (x2, y), (x2, y + rr));
+    let (e, f, g, h2) = quad_to_cubic((x2, y2 - rr), (x2, y2), (x2 - rr, y2));
+    let (i, j, k, l) = quad_to_cubic((x + rr, y2), (x, y2), (x, y2 - rr));
+    let (m, n, o, p) = quad_to_cubic((x, y + rr), (x, y), (x + rr, y));
     vec![
         PathSeg::Move(x + rr, y),
         PathSeg::Line(x2 - rr, y),
-        PathSeg::Cubic(x2 - rr / 3.0, y, x2, y + rr / 3.0, x2, y + rr),
+        PathSeg::Cubic(a, b, c, d, x2, y + rr),
         PathSeg::Line(x2, y2 - rr),
-        PathSeg::Cubic(x2, y2 - rr / 3.0, x2 - rr / 3.0, y2, x2 - rr, y2),
+        PathSeg::Cubic(e, f, g, h2, x2 - rr, y2),
         PathSeg::Line(x + rr, y2),
-        PathSeg::Cubic(x + rr / 3.0, y2, x, y2 - rr / 3.0, x, y2 - rr),
+        PathSeg::Cubic(i, j, k, l, x, y2 - rr),
         PathSeg::Line(x, y + rr),
-        PathSeg::Cubic(x, y + rr / 3.0, x + rr / 3.0, y, x + rr, y),
+        PathSeg::Cubic(m, n, o, p, x + rr, y),
     ]
 }
 

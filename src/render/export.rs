@@ -1,15 +1,128 @@
 use std::{collections::HashMap, fmt::Write, sync::OnceLock};
 
+use base64::Engine as _;
+
 use crate::{
     core::{
         bounds::{common_bounds, element_bounds},
         element::Element,
         scene::{BinaryFileData, Scene},
+        types::{FillStyle, FontFamily},
     },
-    render::shape::{Drawable, Op, render_element},
+    render::shape::{Drawable, Op, Rgba, render_element},
 };
 
 pub type BinaryFiles = HashMap<String, BinaryFileData>;
+
+pub const DEFAULT_EXPORT_PADDING: f64 = 10.0;
+
+/// PNG `tEXt` keyword upstream uses to carry the scene payload.
+pub const PNG_SCENE_KEYWORD: &str = "application/vnd.excalidraw+json";
+
+const DARK_MODE_INVERT_PERCENT: f64 = 93.0;
+const DARK_MODE_HUE_ROTATE_DEGREES: f64 = 180.0;
+
+/// Upstream darkens exports with the CSS filter `invert(93%) hue-rotate(180deg)`
+/// rather than swapping palettes, so a yellow sticky note comes out dark olive
+/// and a white background comes out #121212. Replicating the same maths keeps our
+/// SVG and PNG pixel-identical to theirs.
+pub fn dark_mode_color(r: u8, g: u8, b: u8) -> (u8, u8, u8) {
+    let percent = DARK_MODE_INVERT_PERCENT / 100.0;
+    let invert = |channel: f64| {
+        (channel * (1.0 - percent) + (255.0 - channel) * percent)
+            .round()
+            .clamp(0.0, 255.0)
+    };
+    let (r, g, b) = (
+        invert(r as f64) / 255.0,
+        invert(g as f64) / 255.0,
+        invert(b as f64) / 255.0,
+    );
+
+    let radians = DARK_MODE_HUE_ROTATE_DEGREES.to_radians();
+    let (cos, sin) = (radians.cos(), radians.sin());
+    let m = [
+        0.213 + cos * 0.787 - sin * 0.213,
+        0.715 - cos * 0.715 - sin * 0.715,
+        0.072 - cos * 0.072 + sin * 0.928,
+        0.213 - cos * 0.213 + sin * 0.143,
+        0.715 + cos * 0.285 + sin * 0.140,
+        0.072 - cos * 0.072 - sin * 0.283,
+        0.213 - cos * 0.213 - sin * 0.787,
+        0.715 - cos * 0.715 + sin * 0.715,
+        0.072 + cos * 0.928 + sin * 0.072,
+    ];
+    let channel = |value: f64| (value.clamp(0.0, 1.0) * 255.0).round() as u8;
+    (
+        channel(r * m[0] + g * m[1] + b * m[2]),
+        channel(r * m[3] + g * m[4] + b * m[5]),
+        channel(r * m[6] + g * m[7] + b * m[8]),
+    )
+}
+
+/// The same filter applied to a `#rrggbb` string, used for the export background.
+fn dark_mode_hex(color: &str) -> String {
+    let rgba = Rgba::from_hex(color);
+    let (r, g, b) = dark_mode_color(
+        (rgba.r * 255.0).round() as u8,
+        (rgba.g * 255.0).round() as u8,
+        (rgba.b * 255.0).round() as u8,
+    );
+    format!("#{:02x}{:02x}{:02x}", r, g, b)
+}
+
+/// Attach the scene JSON to an encoded PNG as a `tEXt` chunk placed right
+/// before `IEND`, which is where readers expect to find it.
+pub fn embed_png_scene_data(png: &[u8], scene_json: &str) -> Vec<u8> {
+    if png.len() < 12 {
+        return png.to_vec();
+    }
+    let mut data = Vec::with_capacity(PNG_SCENE_KEYWORD.len() + 1 + scene_json.len());
+    data.extend_from_slice(PNG_SCENE_KEYWORD.as_bytes());
+    data.push(0);
+    data.extend_from_slice(scene_json.as_bytes());
+
+    let mut chunk = Vec::with_capacity(data.len() + 12);
+    chunk.extend_from_slice(&(data.len() as u32).to_be_bytes());
+    chunk.extend_from_slice(b"tEXt");
+    chunk.extend_from_slice(&data);
+    let mut crc_input = Vec::with_capacity(4 + data.len());
+    crc_input.extend_from_slice(b"tEXt");
+    crc_input.extend_from_slice(&data);
+    chunk.extend_from_slice(&crc32(&crc_input).to_be_bytes());
+
+    // The last 12 bytes are the (empty) IEND chunk; splice ours in ahead of it.
+    let split = png.len() - 12;
+    let mut out = Vec::with_capacity(png.len() + chunk.len());
+    out.extend_from_slice(&png[..split]);
+    out.extend_from_slice(&chunk);
+    out.extend_from_slice(&png[split..]);
+    out
+}
+
+/// Attach the scene JSON to an SVG document as a `<metadata>` element.
+pub fn embed_svg_scene_data(svg: &str, scene_json: &str) -> String {
+    let meta = format!(
+        "<metadata id=\"excalidraw-scene\">{}</metadata>",
+        escape_xml(scene_json)
+    );
+    match svg.rfind("</svg>") {
+        Some(index) => format!("{}{meta}{}", &svg[..index], &svg[index..]),
+        None => svg.to_string(),
+    }
+}
+
+fn crc32(data: &[u8]) -> u32 {
+    let mut crc = 0xffff_ffffu32;
+    for &byte in data {
+        crc ^= byte as u32;
+        for _ in 0..8 {
+            let mask = (crc & 1).wrapping_neg();
+            crc = (crc >> 1) ^ (0xedb8_8320 & mask);
+        }
+    }
+    !crc
+}
 
 pub struct SvgExporter;
 
@@ -47,8 +160,18 @@ pub fn export_png_with_files(
     scale: f32,
     files: &BinaryFiles,
 ) -> Result<Vec<u8>, String> {
+    export_png_with_options(scene, background, scale, files, false)
+}
+
+pub fn export_png_with_options(
+    scene: &Scene,
+    background: &str,
+    scale: f32,
+    files: &BinaryFiles,
+    dark_mode: bool,
+) -> Result<Vec<u8>, String> {
     rasterize_png(
-        &SvgExporter::export_with_files(scene, background, files),
+        &SvgExporter::export_with_options(scene, background, files, dark_mode),
         scale,
     )
 }
@@ -57,8 +180,42 @@ fn svg_options() -> &'static usvg::Options<'static> {
     static OPTIONS: OnceLock<usvg::Options<'static>> = OnceLock::new();
     OPTIONS.get_or_init(|| {
         let mut options = usvg::Options::default();
-        options.fontdb_mut().load_system_fonts();
+        {
+            // Register the hand-drawn faces so exported text rasterizes with the same
+            // letterforms the editor draws, instead of falling back to a sans-serif.
+            let db = options.fontdb_mut();
+            db.load_system_fonts();
+            db.load_font_data(crate::ui::fonts::EXCALIFONT_TTF.to_vec());
+            db.load_font_data(crate::ui::fonts::VIRGIL_TTF.to_vec());
+        }
         options
+    })
+}
+
+fn font_family_name(family: FontFamily) -> &'static str {
+    match family {
+        FontFamily::Virgil => "Virgil, sans-serif",
+        FontFamily::Helvetica => "Helvetica, sans-serif",
+        FontFamily::Cascadia => "Cascadia, monospace",
+        FontFamily::Assistant => "Assistant, sans-serif",
+        FontFamily::Excalifont => "Excalifont, sans-serif",
+        FontFamily::ComicShanns => "ComicShanns, cursive",
+        FontFamily::Liberation => "Liberation Sans, sans-serif",
+        FontFamily::Nunito => "Nunito, sans-serif",
+        FontFamily::Lilita => "Lilita One, sans-serif",
+        FontFamily::Xiaolai => "Xiaolai, sans-serif",
+    }
+}
+
+fn embedded_font_face_css() -> &'static str {
+    static CSS: OnceLock<String> = OnceLock::new();
+    CSS.get_or_init(|| {
+        let encode = |bytes: &[u8]| base64::engine::general_purpose::STANDARD.encode(bytes);
+        format!(
+            "<defs><style>@font-face{{font-family:'Excalifont';src:url(data:font/ttf;base64,{}) format('truetype');}}@font-face{{font-family:'Virgil';src:url(data:font/ttf;base64,{}) format('truetype');}}</style></defs>",
+            encode(crate::ui::fonts::EXCALIFONT_TTF),
+            encode(crate::ui::fonts::VIRGIL_TTF),
+        )
     })
 }
 
@@ -68,10 +225,19 @@ impl SvgExporter {
     }
 
     pub fn export_with_files(scene: &Scene, background: &str, files: &BinaryFiles) -> String {
+        Self::export_with_options(scene, background, files, false)
+    }
+
+    pub fn export_with_options(
+        scene: &Scene,
+        background: &str,
+        files: &BinaryFiles,
+        dark_mode: bool,
+    ) -> String {
         let elements: Vec<&Element> = scene.non_deleted().collect();
         let bounds =
             common_bounds(&elements).unwrap_or(crate::core::Bounds::new(0.0, 0.0, 100.0, 100.0));
-        let padding = 20.0;
+        let padding = DEFAULT_EXPORT_PADDING;
         let width = bounds.width() + padding * 2.0;
         let height = bounds.height() + padding * 2.0;
         let ox = bounds.min_x - padding;
@@ -83,19 +249,25 @@ impl SvgExporter {
             "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{:.1}\" height=\"{:.1}\" viewBox=\"{:.1} {:.1} {:.1} {:.1}\">",
             width, height, ox, oy, width, height
         );
+        svg.push_str(embedded_font_face_css());
 
         if !crate::core::color::is_transparent(background) {
+            let fill = if dark_mode {
+                dark_mode_hex(background)
+            } else {
+                background.to_string()
+            };
             let _ = write!(
                 svg,
                 "<rect x=\"{:.1}\" y=\"{:.1}\" width=\"{:.1}\" height=\"{:.1}\" fill=\"{}\"/>",
-                ox, oy, width, height, background
+                ox, oy, width, height, fill
             );
         }
 
         for element in &elements {
             let drawables = render_element(element);
             for d in drawables {
-                write_drawable(&mut svg, &d, files);
+                write_drawable(&mut svg, &d, files, dark_mode);
             }
         }
 
@@ -113,7 +285,7 @@ impl SvgExporter {
         files: &BinaryFiles,
     ) -> String {
         let b = element_bounds(element);
-        let padding = 10.0;
+        let padding = DEFAULT_EXPORT_PADDING;
         let width = b.width() + padding * 2.0;
         let height = b.height() + padding * 2.0;
         let ox = b.min_x - padding;
@@ -125,6 +297,7 @@ impl SvgExporter {
             "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{:.1}\" height=\"{:.1}\" viewBox=\"{:.1} {:.1} {:.1} {:.1}\">",
             width, height, ox, oy, width, height
         );
+        svg.push_str(embedded_font_face_css());
         if !crate::core::color::is_transparent(background) {
             let _ = write!(
                 svg,
@@ -133,40 +306,23 @@ impl SvgExporter {
             );
         }
         for d in render_element(element) {
-            write_drawable(&mut svg, &d, files);
+            write_drawable(&mut svg, &d, files, false);
         }
         svg.push_str("</svg>");
         svg
     }
 }
 
-fn write_drawable(svg: &mut String, d: &Drawable, files: &BinaryFiles) {
+fn write_drawable(svg: &mut String, d: &Drawable, files: &BinaryFiles, dark_mode: bool) {
     if let Some(t) = &d.text {
-        let color = format!(
-            "rgba({},{},{},{})",
-            (t.color.r * 255.0) as u8,
-            (t.color.g * 255.0) as u8,
-            (t.color.b * 255.0) as u8,
-            t.color.a
-        );
+        let color = rgba_attr(t.color.r, t.color.g, t.color.b, t.color.a, dark_mode);
 
         let (anchor, anchor_x) = match t.text_align {
             crate::core::types::TextAlign::Left => ("start", t.x),
             crate::core::types::TextAlign::Center => ("middle", t.x + t.width / 2.0),
             crate::core::types::TextAlign::Right => ("end", t.x + t.width),
         };
-        let font_family = match t.font_family {
-            crate::core::types::FontFamily::Virgil => "Virgil, sans-serif",
-            crate::core::types::FontFamily::Helvetica => "Helvetica, sans-serif",
-            crate::core::types::FontFamily::Cascadia => "Cascadia, monospace",
-            crate::core::types::FontFamily::Assistant => "Assistant, sans-serif",
-            crate::core::types::FontFamily::Excalifont => "Excalifont, sans-serif",
-            crate::core::types::FontFamily::ComicShanns => "ComicShanns, cursive",
-            crate::core::types::FontFamily::Liberation => "Liberation Sans, sans-serif",
-            crate::core::types::FontFamily::Nunito => "Nunito, sans-serif",
-            crate::core::types::FontFamily::Lilita => "Lilita One, sans-serif",
-            crate::core::types::FontFamily::Xiaolai => "Xiaolai, sans-serif",
-        };
+        let font_family = font_family_name(t.font_family);
 
         let lines: Vec<&str> = t.text.split('\n').collect();
         let line_h = t.font_size * t.line_height;
@@ -229,12 +385,12 @@ fn write_drawable(svg: &mut String, d: &Drawable, files: &BinaryFiles) {
 
     if let Some(ink) = &d.ink {
         let path = ops_to_path(ink);
-        let fill = format!(
-            "rgba({},{},{},{})",
-            (d.options.stroke_color.r * 255.0) as u8,
-            (d.options.stroke_color.g * 255.0) as u8,
-            (d.options.stroke_color.b * 255.0) as u8,
-            d.options.stroke_color.a
+        let fill = rgba_attr(
+            d.options.stroke_color.r,
+            d.options.stroke_color.g,
+            d.options.stroke_color.b,
+            d.options.stroke_color.a,
+            dark_mode,
         );
         let _ = write!(
             svg,
@@ -244,33 +400,47 @@ fn write_drawable(svg: &mut String, d: &Drawable, files: &BinaryFiles) {
         return;
     }
 
-    for set in &d.sets {
-        let path = ops_to_path(set);
-        let stroke = format!(
-            "rgba({},{},{},{})",
-            (d.options.stroke_color.r * 255.0) as u8,
-            (d.options.stroke_color.g * 255.0) as u8,
-            (d.options.stroke_color.b * 255.0) as u8,
-            d.options.stroke_color.a
-        );
-
-        let fill = match d.options.fill_color {
-            Some(c) => format!(
-                "rgba({},{},{},{})",
-                (c.r * 255.0) as u8,
-                (c.g * 255.0) as u8,
-                (c.b * 255.0) as u8,
-                c.a
-            ),
-            None => "none".to_string(),
-        };
-
+    // Solid fills are painted from the element's outline rather than from the rough
+    // stroke sets: filling the stroked path would shut out the double-drawn outline
+    // and drop the background colour entirely.
+    if d.options.fill_style == FillStyle::Solid
+        && let (Some(fill_path), Some(c)) = (&d.fill_path, d.options.fill_color)
+    {
+        let path = ops_to_path(fill_path);
         let _ = write!(
             svg,
-            "<path d=\"{}\" fill=\"{}\" stroke=\"{}\" stroke-width=\"{:.2}\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>",
-            path, fill, stroke, d.options.stroke_width
+            "<path d=\"{}\" fill=\"{}\" stroke=\"none\"/>",
+            path,
+            rgba_attr(c.r, c.g, c.b, c.a, dark_mode)
         );
     }
+
+    for set in &d.sets {
+        let path = ops_to_path(set);
+        let _ = write!(
+            svg,
+            "<path d=\"{}\" fill=\"none\" stroke=\"{}\" stroke-width=\"{:.2}\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>",
+            path,
+            rgba_attr(
+                d.options.stroke_color.r,
+                d.options.stroke_color.g,
+                d.options.stroke_color.b,
+                d.options.stroke_color.a,
+                dark_mode,
+            ),
+            d.options.stroke_width
+        );
+    }
+}
+
+fn rgba_attr(r: f64, g: f64, b: f64, a: f64, dark_mode: bool) -> String {
+    let channels = ((r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8);
+    let (r, g, b) = if dark_mode {
+        dark_mode_color(channels.0, channels.1, channels.2)
+    } else {
+        channels
+    };
+    format!("rgba({},{},{},{})", r, g, b, a)
 }
 
 fn escape_xml(s: &str) -> String {

@@ -856,6 +856,100 @@ fn export_dialog_moves_the_caret_and_selects_all(cx: &mut TestAppContext) {
 }
 
 #[gpui_kit::test]
+fn export_image_raises_the_dialog(cx: &mut TestAppContext) {
+    let (window, content) = open_editor_sized(cx, 1000.0, 800.0);
+
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        assert!(
+            window.try_find("image-dialog-backdrop").is_none(),
+            "the export dialog must not be up before it is asked for"
+        );
+
+        window.click("menu", cx);
+        window.render_frame(cx);
+        window.click("fm-png", cx);
+        window.render_frame(cx);
+
+        content.update(cx, |editor, _| {
+            assert!(editor.image_dialog_open(), "the menu row raised nothing");
+        });
+
+        assert!(window.find("image-dialog-backdrop").visible());
+        for id in [
+            "export-filename",
+            "export-btn-png",
+            "export-btn-svg",
+            "export-btn-copy",
+            "export-row-background",
+            "export-row-dark-mode",
+            "export-row-embed-scene",
+            "export-scale-1",
+        ] {
+            assert!(window.find(id).visible(), "{id} is missing from the dialog");
+        }
+
+        let preview = window.find("export-preview").bounds();
+        let settings = window.find("export-settings").bounds();
+        assert!(
+            preview.size.width > settings.size.width,
+            "the preview should keep the wider 55% column: {preview:?} vs {settings:?}"
+        );
+        assert!(
+            preview.size.height > px(300.0),
+            "the preview is shorter than upstream's 360px box: {preview:?}"
+        );
+        let field = window.find("export-filename").bounds();
+        assert!(
+            field.origin.y > preview.origin.y + preview.size.height,
+            "the name field belongs under the preview, not beside it: {field:?}"
+        );
+        let png = window.find("export-btn-png").bounds();
+        let svg = window.find("export-btn-svg").bounds();
+        let copy = window.find("export-btn-copy").bounds();
+        assert!(
+            (png.origin.y - svg.origin.y).abs() < px(1.0)
+                && (svg.origin.y - copy.origin.y).abs() < px(1.0),
+            "the three action buttons should sit on one row: {png:?} {svg:?} {copy:?}"
+        );
+        assert!(
+            copy.origin.x + copy.size.width <= settings.origin.x + settings.size.width + px(1.0),
+            "the action buttons overflow the settings column: {copy:?} {settings:?}"
+        );
+
+        // Toggling a setting flips the state and keeps the dialog up.
+        window.click("export-row-dark-mode", cx);
+        window.render_frame(cx);
+        content.update(cx, |editor, _| {
+            assert!(editor.export_dark_mode(), "the dark mode switch did not flip");
+        });
+
+        // Choosing a scale updates the export scale.
+        window.click("export-scale-2", cx);
+        window.render_frame(cx);
+        content.update(cx, |editor, _| {
+            assert_eq!(editor.export_scale(), 2.0);
+        });
+
+        window.press("escape", cx);
+        window.render_frame(cx);
+        content.update(cx, |editor, _| {
+            assert!(
+                !editor.image_dialog_open(),
+                "escape did not dismiss the export modal"
+            );
+        });
+
+        window.press("ctrl-shift-e", cx);
+        window.render_frame(cx);
+        content.update(cx, |editor, _| {
+            assert!(editor.image_dialog_open(), "Ctrl+Shift+E raised nothing");
+        });
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
 fn ctrl_f_finds_and_cycles_text_matches(cx: &mut TestAppContext) {
     let (window, content) = open_editor(cx);
 

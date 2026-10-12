@@ -71,6 +71,17 @@ pub fn export_svg_with_files(scene: &Scene, background: &str, files: &BinaryFile
     SvgExporter::export_with_files(scene, background, files)
 }
 
+/// Dark mode is applied by the renderer as the upstream `invert(93%)
+/// hue-rotate(180deg)` filter, so it has to travel with the export call.
+pub fn export_svg_with_dark_mode(
+    scene: &Scene,
+    background: &str,
+    files: &BinaryFiles,
+    dark_mode: bool,
+) -> String {
+    SvgExporter::export_with_options(scene, background, files, dark_mode)
+}
+
 pub fn export_png(scene: &Scene, background: &str, scale: f32) -> Result<Vec<u8>, String> {
     crate::render::export::export_png(scene, background, scale)
 }
@@ -82,6 +93,16 @@ pub fn export_png_with_files(
     files: &BinaryFiles,
 ) -> Result<Vec<u8>, String> {
     crate::render::export::export_png_with_files(scene, background, scale, files)
+}
+
+pub fn export_png_with_dark_mode(
+    scene: &Scene,
+    background: &str,
+    scale: f32,
+    files: &BinaryFiles,
+    dark_mode: bool,
+) -> Result<Vec<u8>, String> {
+    crate::render::export::export_png_with_options(scene, background, scale, files, dark_mode)
 }
 
 pub fn export_selected_png(

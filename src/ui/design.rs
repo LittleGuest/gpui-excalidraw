@@ -436,6 +436,88 @@ pub mod size {
         pub const NAME_FIELD_FONT: f32 = 15.4;
     }
 
+    pub mod export_dialog {
+        pub const WIDTH: f32 = 1024.0;
+
+        pub const MODAL_PADDING: f32 = 40.0;
+
+        // Upstream's dialog body uses 1.5rem; wider padding starves the
+        // settings column and forces the action buttons onto a second row.
+        pub const CONTENT_PADDING: f32 = 24.0;
+
+        pub const RADIUS: f32 = 12.0;
+
+        pub const HEADER_FONT: f32 = 21.0;
+
+        pub const PREVIEW_H: f32 = 360.0;
+
+        pub const PREVIEW_GAP: f32 = 24.0;
+
+        pub const PREVIEW_RADIUS: f32 = 12.0;
+
+        pub const PREVIEW_PAD: f32 = 16.0;
+
+        pub const PREVIEW_BORDER: f32 = 1.0;
+
+        pub const CHECKER: f32 = 8.0;
+
+        pub const PREVIEW_IMG_MARGIN: f32 = 16.0;
+
+        pub const SETTINGS_GAP: f32 = 18.0;
+
+        pub const SETTING_LABEL_FONT: f32 = 16.0;
+
+        pub const SETTING_ICON: f32 = 20.0;
+
+        pub const SETTING_ICON_GAP: f32 = 10.0;
+
+        pub const SWITCH_W: f32 = 40.0;
+
+        pub const SWITCH_H: f32 = 20.0;
+
+        pub const SWITCH_THUMB: f32 = 10.0;
+
+        pub const SWITCH_THUMB_ON: f32 = 14.0;
+
+        pub const RADIO_PAD: f32 = 3.0;
+
+        pub const RADIO_RADIUS: f32 = 10.0;
+
+        pub const RADIO_ITEM_H: f32 = 24.0;
+
+        pub const RADIO_ITEM_MIN_W: f32 = 20.0;
+
+        pub const RADIO_ITEM_RADIUS: f32 = 8.0;
+
+        pub const RADIO_FONT: f32 = 12.0;
+
+        pub const BUTTON_H: f32 = 40.0;
+
+        pub const BUTTON_PAD_X: f32 = 12.0;
+
+        pub const BUTTON_RADIUS: f32 = 8.0;
+
+        pub const BUTTON_FONT: f32 = 14.0;
+
+        pub const BUTTON_ICON: f32 = 16.0;
+
+        pub const BUTTON_GAP: f32 = 11.0;
+
+        pub const BUTTON_ROW_TOP: f32 = 24.0;
+
+        pub const NAME_FIELD_W: f32 = 240.0;
+
+        pub const NAME_FIELD_H: f32 = 40.0;
+
+        pub const NAME_FIELD_PAD: f32 = 12.0;
+
+        pub const NAME_FIELD_RADIUS: f32 = 4.0;
+
+        pub const NAME_FIELD_FONT: f32 = 15.4;
+
+        pub const NAME_FIELD_TOP: f32 = 16.0;
+    }
+
     pub mod language_select {
         pub const HEIGHT: f32 = 32.0;
         pub const PAD_START: f32 = 8.0;

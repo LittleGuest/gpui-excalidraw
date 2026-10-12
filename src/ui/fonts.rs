@@ -6,9 +6,9 @@ pub const EXCALIFONT_FAMILY: &str = "Excalifont";
 
 pub const VIRGIL_FAMILY: &str = "Virgil";
 
-const EXCALIFONT_TTF: &[u8] = include_bytes!("../../assets/fonts/Excalifont-Regular.ttf");
+pub const EXCALIFONT_TTF: &[u8] = include_bytes!("../../assets/fonts/Excalifont-Regular.ttf");
 
-const VIRGIL_TTF: &[u8] = include_bytes!("../../assets/fonts/Virgil-Regular.ttf");
+pub const VIRGIL_TTF: &[u8] = include_bytes!("../../assets/fonts/Virgil-Regular.ttf");
 
 pub fn hand_drawn_fonts() -> Vec<Cow<'static, [u8]>> {
     vec![Cow::Borrowed(EXCALIFONT_TTF), Cow::Borrowed(VIRGIL_TTF)]

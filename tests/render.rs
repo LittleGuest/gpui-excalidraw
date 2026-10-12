@@ -609,7 +609,9 @@ fn png_export_paints_the_embedded_bitmap() {
     )
     .unwrap();
     let pixmap = tiny_skia::Pixmap::decode_png(&png).expect("decode");
-    let pixel = pixmap.pixel(30, 30).unwrap();
+    // The export pads by DEFAULT_EXPORT_PADDING, so the 20x20 bitmap at the
+    // scene origin lands at (10, 10); (20, 20) is its centre.
+    let pixel = pixmap.pixel(20, 20).unwrap();
     assert_eq!(
         (pixel.red(), pixel.green(), pixel.blue()),
         (0xff, 0x00, 0x00)
@@ -635,4 +637,50 @@ fn free_text_is_not_wrapped() {
     let el = new_text(0.0, 0.0, &"字".repeat(30), 20.0, &ElementOptions::default());
     let d = &render_element(&el)[0];
     assert_eq!(d.text.as_ref().unwrap().text.split('\n').count(), 1);
+}
+
+#[test]
+fn dark_mode_matches_the_upstream_invert_filter() {
+    use gpui_excalidraw::render::export::dark_mode_color;
+
+    // `invert(93%) hue-rotate(180deg)` maps white onto #121212, which is the
+    // dark canvas colour upstream ships with.
+    assert_eq!(dark_mode_color(255, 255, 255), (18, 18, 18));
+    // A bright sticky note has to darken; keeping it bright is the bug this guards.
+    let (r, g, b) = dark_mode_color(255, 255, 0);
+    assert!(
+        r < 90 && g < 90 && b < 40,
+        "bright yellow should darken to olive, got ({r}, {g}, {b})"
+    );
+    // Near-black strokes must flip to near-white so they stay readable.
+    let (r, g, b) = dark_mode_color(30, 30, 30);
+    assert!(r > 200 && g > 200 && b > 200, "got ({r}, {g}, {b})");
+}
+
+#[test]
+fn dark_mode_svg_darkens_the_background_and_the_elements() {
+    let mut base = ElementBase::new("dm".to_string(), ElementType::Rectangle);
+    base.x = 0.0;
+    base.y = 0.0;
+    base.width = 100.0;
+    base.height = 60.0;
+    base.stroke_color = "#1e1e1e".to_string();
+    base.background_color = "#ffff00".to_string();
+    base.fill_style = FillStyle::Solid;
+    let mut scene = Scene::new();
+    scene.add(Element::Rectangle { base });
+    let files = gpui_excalidraw::render::export::BinaryFiles::new();
+
+    let light = SvgExporter::export_with_options(&scene, "#ffffff", &files, false);
+    let dark = SvgExporter::export_with_options(&scene, "#ffffff", &files, true);
+
+    assert!(light.contains("fill=\"#ffffff\""), "light: {light}");
+    assert!(
+        dark.contains("fill=\"#121212\""),
+        "the dark export keeps a white background: {dark}"
+    );
+    assert!(
+        !dark.contains("255,255,0"),
+        "the sticky note kept its bright yellow fill: {dark}"
+    );
 }
