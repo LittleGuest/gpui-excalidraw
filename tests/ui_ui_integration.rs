@@ -1000,6 +1000,19 @@ fn help_dialog_opens_on_question_mark(cx: &mut TestAppContext) {
             "the help dialog did not paint"
         );
 
+        // Upstream splits the shortcuts into a left column (tools, view) and a
+        // right column (editor) spanning both rows.
+        let left = window.find("help-col-left").bounds();
+        let right = window.find("help-col-right").bounds();
+        assert!(
+            left.origin.x < right.origin.x,
+            "tools/view and editor must sit in separate columns"
+        );
+        assert!(
+            left.size.width > px(100.0) && right.size.width > px(100.0),
+            "both island columns should be laid out with real width"
+        );
+
         window.press("escape", cx);
         content.update(cx, |editor, _| assert!(!editor.is_help_open()));
     })

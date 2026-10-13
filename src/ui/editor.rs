@@ -1722,10 +1722,17 @@ impl Editor {
 
     pub fn help_labels() -> Vec<&'static str> {
         let mut keys = Vec::new();
-        for &(section, rows) in HELP_SHORTCUTS {
-            keys.push(section);
-            for &(label, _) in rows {
+        for &(caption, rows) in HELP_ISLANDS.iter() {
+            keys.push(caption);
+            for &(label, shortcuts, _) in rows {
                 keys.push(label);
+                for shortcut in shortcuts {
+                    for part in shortcut.split('+') {
+                        if part.starts_with("helpDialog.") {
+                            keys.push(part);
+                        }
+                    }
+                }
             }
         }
         keys
@@ -6337,61 +6344,174 @@ const PALETTE_COMMANDS: &[PaletteCommand] = &[
     },
 ];
 
-const HELP_SHORTCUTS: &[(&str, &[(&str, &str)])] = &[
-    (
-        "help.tools",
-        &[
-            ("toolbar.rectangle", "R"),
-            ("toolbar.ellipse", "O"),
-            ("toolbar.arrow", "A"),
-            ("toolbar.line", "L"),
-            ("toolbar.freedraw", "P"),
-            ("toolbar.text", "T"),
-            ("toolbar.eraser", "E"),
-            ("toolbar.laser", "K"),
-            ("menu.toolLock", "Q"),
-        ],
-    ),
-    (
-        "help.actions",
-        &[
-            ("action.undo", "Ctrl+Z"),
-            ("action.redo", "Ctrl+Shift+Z"),
-            ("action.duplicate", "Ctrl+D"),
-            ("action.delete", "Delete"),
-            ("ctx.selectAll", "Ctrl+A"),
-            ("action.copyToClipboard", "Ctrl+C"),
-            ("ctx.cut", "Ctrl+X"),
-            ("ctx.paste", "Ctrl+V"),
-            ("action.group", "Ctrl+G"),
-            ("action.ungroup", "Ctrl+Shift+G"),
-        ],
-    ),
-    (
-        "help.view",
-        &[
-            ("action.zoomIn", "Ctrl++"),
-            ("action.zoomOut", "Ctrl+-"),
-            ("action.resetZoom", "Ctrl+0"),
-            ("action.zoomToFit", "Shift+1"),
-            ("action.toggleGrid", "Ctrl+'"),
-            ("menu.zenMode", "Alt+Z"),
-            ("menu.viewMode", "Alt+R"),
-            ("menu.canvasStats", "Alt+/"),
-        ],
-    ),
-    (
-        "help.files",
-        &[
-            ("menu.open", "Ctrl+O"),
-            ("menu.save", "Ctrl+S"),
-            ("action.exportPng", "Ctrl+Shift+E"),
-            ("menu.commandPalette", "Ctrl+/"),
-            ("menu.findOnCanvas", "Ctrl+F"),
-            ("menu.help", "?"),
-        ],
-    ),
-];
+/// A help-dialog row: the label key, the shortcut groups, and whether the
+/// groups are alternatives (`HELP_OR`) or one sequence (`HELP_SEQ`).
+type HelpRow = (&'static str, &'static [&'static str], bool);
+
+/// A help-dialog island: its caption key and its rows.
+type HelpIsland = (&'static str, &'static [HelpRow]);
+
+/// Shortcut groups read as alternatives ("Ctrl or Shift+Enter").
+const HELP_OR: bool = true;
+
+/// Shortcut groups read as a single sequence ("A, click, click, click").
+const HELP_SEQ: bool = false;
+
+// Rows transcribed from upstream HelpDialog.tsx. Keys are upstream's own so the
+// two dialogs stay textually identical; a chip that names a `helpDialog.*` key
+// (e.g. `helpDialog.click`) is resolved at render time, everything else is a
+// literal shortcut.
+const HELP_TOOLS: HelpIsland = (
+    "helpDialog.tools",
+    &[
+        ("toolBar.hand", &["H"], HELP_OR),
+        ("toolBar.selection", &["V", "1"], HELP_OR),
+        ("toolBar.rectangle", &["R", "2"], HELP_OR),
+        ("toolBar.diamond", &["D", "3"], HELP_OR),
+        ("toolBar.ellipse", &["O", "4"], HELP_OR),
+        ("toolBar.arrow", &["A", "5"], HELP_OR),
+        ("toolBar.line", &["L", "6"], HELP_OR),
+        ("toolBar.freedraw", &["P", "7"], HELP_OR),
+        ("toolBar.text", &["T", "8"], HELP_OR),
+        ("toolBar.stickynote", &["N"], HELP_OR),
+        ("toolBar.image", &["9"], HELP_OR),
+        ("toolBar.eraser", &["E", "0"], HELP_OR),
+        ("toolBar.frame", &["F"], HELP_OR),
+        ("toolBar.laser", &["K"], HELP_OR),
+        ("toolBar.bucketfill", &["B"], HELP_OR),
+        ("labels.eyeDropper", &["I", "Shift+S", "Shift+G"], HELP_OR),
+        ("helpDialog.editLineArrowPoints", &["Ctrl+Enter"], HELP_OR),
+        ("helpDialog.editText", &["Enter"], HELP_OR),
+        ("helpDialog.textNewLine", &["Enter", "Shift+Enter"], HELP_OR),
+        ("helpDialog.textFinish", &["Esc", "Ctrl+Enter"], HELP_OR),
+        (
+            "helpDialog.curvedArrow",
+            &[
+                "A",
+                "helpDialog.click",
+                "helpDialog.click",
+                "helpDialog.click",
+            ],
+            HELP_SEQ,
+        ),
+        (
+            "helpDialog.curvedLine",
+            &[
+                "L",
+                "helpDialog.click",
+                "helpDialog.click",
+                "helpDialog.click",
+            ],
+            HELP_SEQ,
+        ),
+        (
+            "helpDialog.cropStart",
+            &["helpDialog.doubleClick", "Enter"],
+            HELP_OR,
+        ),
+        ("helpDialog.cropFinish", &["Enter", "Esc"], HELP_OR),
+        ("toolBar.lock", &["Q"], HELP_OR),
+        ("helpDialog.preventBinding", &["Ctrl"], HELP_OR),
+        ("toolBar.link", &["Ctrl+K"], HELP_OR),
+        ("toolBar.convertElementType", &["Tab", "Shift+Tab"], HELP_OR),
+    ],
+);
+
+const HELP_VIEW: HelpIsland = (
+    "helpDialog.view",
+    &[
+        ("buttons.zoomIn", &["Ctrl++"], HELP_OR),
+        ("buttons.zoomOut", &["Ctrl+-"], HELP_OR),
+        ("buttons.resetZoom", &["Ctrl+0"], HELP_OR),
+        ("helpDialog.zoomToFit", &["Shift+1"], HELP_OR),
+        ("helpDialog.zoomToSelection", &["Shift+2"], HELP_OR),
+        ("helpDialog.movePageUpDown", &["PgUp/PgDn"], HELP_OR),
+        (
+            "helpDialog.movePageLeftRight",
+            &["Shift+PgUp/PgDn"],
+            HELP_OR,
+        ),
+        ("buttons.zenMode", &["Alt+Z"], HELP_OR),
+        ("buttons.objectsSnapMode", &["Alt+S"], HELP_OR),
+        ("labels.toggleGrid", &["Ctrl+'"], HELP_OR),
+        ("labels.viewMode", &["Alt+R"], HELP_OR),
+        ("labels.toggleTheme", &["Alt+Shift+D"], HELP_OR),
+        ("stats.fullTitle", &["Alt+/"], HELP_OR),
+        ("search.title", &["Ctrl+F"], HELP_OR),
+        ("commandPalette.title", &["Ctrl+/", "Ctrl+Shift+P"], HELP_OR),
+    ],
+);
+
+const HELP_EDITOR: HelpIsland = (
+    "helpDialog.editor",
+    &[
+        ("helpDialog.createFlowchart", &["Ctrl+Arrow Key"], HELP_OR),
+        ("helpDialog.navigateFlowchart", &["Alt+Arrow Key"], HELP_OR),
+        (
+            "labels.moveCanvas",
+            &["Space+helpDialog.drag", "Wheel+helpDialog.drag"],
+            HELP_OR,
+        ),
+        ("buttons.clearReset", &["Ctrl+Delete"], HELP_OR),
+        ("labels.delete", &["Delete"], HELP_OR),
+        ("labels.cut", &["Ctrl+X"], HELP_OR),
+        ("labels.copy", &["Ctrl+C"], HELP_OR),
+        ("labels.paste", &["Ctrl+V"], HELP_OR),
+        ("labels.pasteAsPlaintext", &["Ctrl+Shift+V"], HELP_OR),
+        ("labels.selectAll", &["Ctrl+A"], HELP_OR),
+        ("labels.multiSelect", &["Shift+helpDialog.click"], HELP_OR),
+        ("helpDialog.deepSelect", &["Ctrl+helpDialog.click"], HELP_OR),
+        (
+            "helpDialog.deepBoxSelect",
+            &["Ctrl+helpDialog.drag"],
+            HELP_OR,
+        ),
+        ("labels.copyAsPng", &["Shift+Alt+C"], HELP_OR),
+        ("labels.copyStyles", &["Ctrl+Alt+C"], HELP_OR),
+        ("labels.pasteStyles", &["Ctrl+Alt+V"], HELP_OR),
+        ("labels.sendToBack", &["Ctrl+Shift+["], HELP_OR),
+        ("labels.bringToFront", &["Ctrl+Shift+]"], HELP_OR),
+        ("labels.sendBackward", &["Ctrl+["], HELP_OR),
+        ("labels.bringForward", &["Ctrl+]"], HELP_OR),
+        ("labels.alignTop", &["Ctrl+Shift+Up"], HELP_OR),
+        ("labels.alignBottom", &["Ctrl+Shift+Down"], HELP_OR),
+        ("labels.alignLeft", &["Ctrl+Shift+Left"], HELP_OR),
+        ("labels.alignRight", &["Ctrl+Shift+Right"], HELP_OR),
+        (
+            "labels.duplicateSelection",
+            &["Ctrl+D", "Alt+helpDialog.drag"],
+            HELP_OR,
+        ),
+        ("helpDialog.toggleElementLock", &["Ctrl+Shift+L"], HELP_OR),
+        ("buttons.undo", &["Ctrl+Z"], HELP_OR),
+        ("buttons.redo", &["Ctrl+Shift+Z"], HELP_OR),
+        ("labels.group", &["Ctrl+G"], HELP_OR),
+        ("labels.ungroup", &["Ctrl+Shift+G"], HELP_OR),
+        ("labels.toggleWrap", &["W"], HELP_OR),
+        ("labels.flipHorizontal", &["Shift+H"], HELP_OR),
+        ("labels.flipVertical", &["Shift+V"], HELP_OR),
+        ("labels.showStroke", &["S"], HELP_OR),
+        ("labels.showBackground", &["G"], HELP_OR),
+        ("labels.showFonts", &["Shift+F"], HELP_OR),
+        ("labels.decreaseFontSize", &["Ctrl+Shift+<"], HELP_OR),
+        ("labels.increaseFontSize", &["Ctrl+Shift+>"], HELP_OR),
+    ],
+);
+
+const HELP_ISLANDS: [HelpIsland; 3] = [HELP_TOOLS, HELP_VIEW, HELP_EDITOR];
+
+/// Splits a shortcut into its individual key chips, mirroring upstream's
+/// `endsWith("++")` special case so `Ctrl++` renders as `Ctrl` `+`.
+fn help_chip_parts(shortcut: &str) -> Vec<String> {
+    match shortcut.strip_suffix("++") {
+        Some(stem) => {
+            let mut parts: Vec<String> = stem.split('+').map(|s| s.to_string()).collect();
+            parts.push("+".to_string());
+            parts
+        }
+        None => shortcut.split('+').map(|s| s.to_string()).collect(),
+    }
+}
 
 fn find_nav_button(
     id: &'static str,
@@ -6614,90 +6734,193 @@ impl Editor {
     fn render_help(&self, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
         let tokens = crate::design::Tokens::for_palette(palette_of(self.document.theme));
         let t = |k: &str| self.i18n.t(k);
-        let width = 520.0_f32;
-        let left = ((self.viewport.0 as f32 - width) / 2.0).max(size::CONTAINER_PADDING);
+        use crate::design::size::help_dialog as d;
 
-        let mut panel = chrome::dropdown(tokens)
-            .left(px(left))
-            .top(px(64.0))
-            .w(px(width))
-            .min_w(px(width))
-            .max_h(px(self.viewport.1 as f32 - 128.0))
-            .child(
-                div()
+        // A shortcut key chip. Upstream colours these with
+        // `--color-primary-light` and resolves any `helpDialog.*` entry
+        // (`click`, `drag`, …) through the translator.
+        let key_chip = |part: &str| {
+            let text = if part.starts_with("helpDialog.") {
+                t(part)
+            } else {
+                part.to_string()
+            };
+            div()
+                .flex_shrink_0()
+                .flex()
+                .items_center()
+                .px(px(d::KEY_PAD))
+                .py(px(d::KEY_PAD))
+                .rounded(px(d::KEY_RADIUS))
+                .bg(tokens.selected_bg())
+                .text_size(px(d::KEY_FONT))
+                .text_color(tokens.surface_text())
+                .child(SharedString::from(text))
+        };
+
+        let mut islands: Vec<gpui_kit::AnyElement> = Vec::new();
+        for &(caption, rows) in HELP_ISLANDS.iter() {
+            let mut content = div()
+                .flex()
+                .flex_col()
+                .overflow_hidden()
+                .border_1()
+                .border_color(tokens.dialog_border())
+                .rounded(px(d::ISLAND_RADIUS));
+            let last = rows.len().saturating_sub(1);
+            for (index, &(label, shortcuts, is_or)) in rows.iter().enumerate() {
+                let mut keys = div()
+                    .flex_shrink_0()
                     .flex()
                     .flex_row()
                     .items_center()
-                    .gap(px(8.0))
-                    .px(px(8.0))
-                    .py(px(6.0))
-                    .child(crate::icons::icon(
-                        "HelpIcon",
-                        size::ICON,
-                        tokens.surface_text(),
-                    ))
+                    .gap(px(d::KEY_GAP));
+                for (group_index, shortcut) in shortcuts.iter().enumerate() {
+                    if group_index > 0 && is_or {
+                        keys = keys.child(
+                            div()
+                                .flex_shrink_0()
+                                .text_size(px(d::SHORTCUT_FONT))
+                                .text_color(tokens.surface_text())
+                                .child(SharedString::from(t("helpDialog.or"))),
+                        );
+                    }
+                    for part in help_chip_parts(shortcut) {
+                        keys = keys.child(key_chip(&part));
+                    }
+                }
+                let mut row = div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .justify_between()
+                    .gap(px(d::SHORTCUT_GAP))
+                    .w_full()
+                    .px(px(d::SHORTCUT_PAD_X))
+                    .py(px(d::SHORTCUT_PAD_Y))
+                    .text_size(px(d::SHORTCUT_FONT))
+                    .text_color(tokens.surface_text())
+                    .child(div().flex_1().child(SharedString::from(t(label))))
+                    .child(keys);
+                if index != last {
+                    row = row.border_b_1().border_color(tokens.dialog_border());
+                }
+                content = content.child(row);
+            }
+            islands.push(
+                div()
+                    .flex()
+                    .flex_col()
+                    .min_w(px(0.0))
                     .child(
                         div()
-                            .flex_1()
-                            .text_size(px(16.0))
+                            .mb(px(d::ISLAND_TITLE_GAP))
+                            .text_size(px(d::ISLAND_TITLE_FONT))
+                            .font_bold()
                             .text_color(tokens.surface_text())
-                            .child(SharedString::from(t("menu.help"))),
+                            .child(SharedString::from(t(caption))),
                     )
-                    .child(
-                        div()
-                            .id("help-close")
-                            .test_support()
-                            .flex_shrink_0()
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .size(px(size::BUTTON))
-                            .rounded(px(size::RADIUS_MD))
-                            .hover(move |s| s.bg(tokens.hover()))
-                            .child(crate::icons::icon(
-                                "CloseIcon",
-                                size::ICON,
-                                tokens.surface_text(),
-                            ))
-                            .on_click(Self::act(cx, |this, _, _, _| this.show_help = false)),
-                    ),
+                    .child(content)
+                    .into_any_element(),
+            );
+        }
+
+        // Upstream lays the islands on a two-column grid: tools and view stack
+        // in the left column while editor spans both rows on the right.
+        let columns = div()
+            .id("help-columns")
+            .test_support()
+            .flex()
+            .flex_row()
+            .gap(px(d::GRID_COL_GAP))
+            .w_full()
+            .child(
+                div()
+                    .id("help-col-left")
+                    .test_support()
+                    .flex()
+                    .flex_col()
+                    .flex_1()
+                    .min_w(px(0.0))
+                    .gap(px(d::GRID_ROW_GAP))
+                    .child(islands.remove(0))
+                    .child(islands.remove(0)),
+            )
+            .child(
+                div()
+                    .id("help-col-right")
+                    .test_support()
+                    .flex()
+                    .flex_col()
+                    .flex_1()
+                    .min_w(px(0.0))
+                    .child(islands.remove(0)),
             );
 
-        let mut list = div().flex().flex_col().gap(px(2.0)).overflow_hidden();
-        for &(section, rows) in HELP_SHORTCUTS {
-            list = list.child(
+        let body = div()
+            .id("help-body")
+            .test_support()
+            .flex()
+            .flex_col()
+            .flex_1()
+            .min_h(px(0.0))
+            .overflow_y_scroll()
+            .child(
                 div()
-                    .px(px(8.0))
-                    .pt(px(8.0))
-                    .pb(px(2.0))
-                    .text_size(px(13.0))
+                    .my(px(d::SECTION_MARGIN))
+                    .text_size(px(d::SECTION_FONT))
                     .font_bold()
                     .text_color(tokens.surface_text())
-                    .child(SharedString::from(t(section))),
+                    .child(SharedString::from(t("helpDialog.shortcuts"))),
+            )
+            .child(columns);
+
+        let content = div()
+            .relative()
+            .flex()
+            .flex_col()
+            .w(px(d::WIDTH))
+            .max_w_full()
+            .max_h(px(
+                (self.viewport.1 as f32 - 2.0 * d::MODAL_PADDING).max(200.0)
+            ))
+            .p(px(d::CONTENT_PADDING))
+            .bg(tokens.island())
+            .border_1()
+            .border_color(tokens.dialog_border())
+            .rounded(px(d::RADIUS))
+            .shadow(crate::design::modal_shadow())
+            .occlude()
+            .child(
+                div()
+                    .pb(px(d::TITLE_PAD_BOTTOM))
+                    .mb(px(d::TITLE_MARGIN_BOTTOM))
+                    .border_b_1()
+                    .border_color(tokens.dialog_border())
+                    .text_size(px(d::TITLE_FONT))
+                    .font_bold()
+                    .text_color(tokens.surface_text())
+                    .child(SharedString::from(t("helpDialog.title"))),
+            )
+            .child(body)
+            .child(
+                div()
+                    .id("help-close")
+                    .test_support()
+                    .absolute()
+                    .top(px(d::CLOSE_TOP))
+                    .right(px(d::CLOSE_RIGHT))
+                    .flex_shrink_0()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(crate::icons::icon(
+                        "CloseIcon",
+                        d::CLOSE_ICON,
+                        rgb(0xb8b8b8),
+                    ))
+                    .on_click(Self::act(cx, |this, _, _, _| this.show_help = false)),
             );
-            for &(label, keys) in rows {
-                list = list.child(
-                    div()
-                        .flex()
-                        .flex_row()
-                        .items_center()
-                        .gap(px(12.0))
-                        .w_full()
-                        .min_h(px(size::MENU_ROW))
-                        .px(px(8.0))
-                        .rounded(px(size::RADIUS_MD))
-                        .child(
-                            div()
-                                .flex_1()
-                                .text_size(px(14.0))
-                                .text_color(tokens.surface_text())
-                                .child(SharedString::from(t(label))),
-                        )
-                        .child(chrome::kbd_chip(keys, tokens)),
-                );
-            }
-        }
-        panel = panel.child(list);
 
         div()
             .absolute()
@@ -6707,15 +6930,28 @@ impl Editor {
             .child(
                 div()
                     .id("help-backdrop")
+                    .test_support()
                     .absolute()
                     .top(px(0.0))
                     .left(px(0.0))
                     .size_full()
                     .occlude()
-                    .bg(hsla(0.0, 0.0, 0.0, 0.18))
+                    .bg(tokens.overlay_backdrop())
                     .on_click(Self::act(cx, |this, _, _, _| this.show_help = false)),
             )
-            .child(panel)
+            .child(
+                div()
+                    .absolute()
+                    .top(px(0.0))
+                    .left(px(0.0))
+                    .size_full()
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .justify_center()
+                    .p(px(d::MODAL_PADDING))
+                    .child(content),
+            )
             .into_any_element()
     }
 

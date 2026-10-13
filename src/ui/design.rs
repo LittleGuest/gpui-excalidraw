@@ -46,6 +46,8 @@ pub struct Tokens {
 
     pub surface_low: u32,
 
+    pub surface_mid: u32,
+
     pub surface_lowest: u32,
 
     pub primary_darkest: u32,
@@ -72,6 +74,7 @@ pub const LIGHT: Tokens = Tokens {
     button_hover: 0xf1f0ff,
     keybinding: 0xb8b8b8,
     surface_low: 0xececf4,
+    surface_mid: 0xf6f6f9,
     surface_lowest: 0xffffff,
     primary_darkest: 0x4a47b1,
     primary_light_darker: 0xd7d5ff,
@@ -93,6 +96,7 @@ pub const DARK: Tokens = Tokens {
     button_hover: 0x2e2d39,
     keybinding: 0x7a7a7a,
     surface_low: 0x232329,
+    surface_mid: 0x18181b,
     surface_lowest: 0x121212,
     primary_darkest: 0xbeb9ff,
     primary_light_darker: 0x43415e,
@@ -123,6 +127,29 @@ impl Tokens {
 
     pub fn surface_low(&self) -> Rgba {
         rgb(self.surface_low)
+    }
+
+    pub fn surface_mid(&self) -> Rgba {
+        rgb(self.surface_mid)
+    }
+
+    /// Upstream's help-dialog header button defaults its background (and thus
+    /// its border) to `--color-surface-mid`, which becomes `--color-surface-high`
+    /// in the dark theme.
+    pub fn help_link_bg(&self) -> Rgba {
+        match self.palette {
+            Palette::Light => rgb(self.surface_mid),
+            Palette::Dark => rgb(self.surface_high),
+        }
+    }
+
+    /// Hover background for the header buttons: upstream swaps light mode to
+    /// `--color-surface-high` and dark mode to the literal `#363541`.
+    pub fn help_link_hover_bg(&self) -> Rgba {
+        match self.palette {
+            Palette::Light => rgb(self.surface_high),
+            Palette::Dark => rgb(0x363541),
+        }
     }
 
     pub fn gray_60(&self) -> Rgba {
@@ -527,6 +554,56 @@ pub mod size {
         pub const CARET: f32 = 8.32;
         pub const CARET_RIGHT: f32 = 11.2;
         pub const CARET_TOP: f32 = (HEIGHT - CARET) / 2.0;
+    }
+
+    // Mirrors upstream HelpDialog.scss / Dialog.scss / Modal.scss. The dialog
+    // body sits on the modal's own 2.5rem padding, the title rule is the
+    // Dialog__title border, and each shortcut key is a `--color-primary-light`
+    // chip.
+    pub mod help_dialog {
+        pub const WIDTH: f32 = 960.0;
+
+        pub const MODAL_PADDING: f32 = 40.0;
+        pub const CONTENT_PADDING: f32 = 40.0;
+
+        pub const RADIUS: f32 = 12.0;
+
+        pub const TITLE_FONT: f32 = 20.0;
+        pub const TITLE_PAD_BOTTOM: f32 = 12.0;
+        pub const TITLE_MARGIN_BOTTOM: f32 = 24.0;
+
+        pub const CLOSE_TOP: f32 = 12.0;
+        pub const CLOSE_RIGHT: f32 = 8.0;
+        pub const CLOSE_ICON: f32 = 24.0;
+
+        pub const HEADER_GAP: f32 = 12.0;
+
+        pub const LINK_FONT: f32 = 12.0;
+        pub const LINK_PAD_X: f32 = 16.0;
+        pub const LINK_PAD_Y: f32 = 10.0;
+        pub const LINK_RADIUS: f32 = 8.0;
+        pub const LINK_GAP: f32 = 8.0;
+        pub const LINK_ICON: f32 = 16.0;
+
+        pub const SECTION_FONT: f32 = 18.0;
+        pub const SECTION_MARGIN: f32 = 24.0;
+
+        pub const GRID_COL_GAP: f32 = 24.0;
+        pub const GRID_ROW_GAP: f32 = 32.0;
+
+        pub const ISLAND_TITLE_FONT: f32 = 16.0;
+        pub const ISLAND_TITLE_GAP: f32 = 10.0;
+        pub const ISLAND_RADIUS: f32 = 8.0;
+
+        pub const SHORTCUT_FONT: f32 = 14.0;
+        pub const SHORTCUT_PAD_X: f32 = 12.0;
+        pub const SHORTCUT_PAD_Y: f32 = 6.0;
+        pub const SHORTCUT_GAP: f32 = 8.0;
+
+        pub const KEY_FONT: f32 = 10.0;
+        pub const KEY_PAD: f32 = 8.0;
+        pub const KEY_RADIUS: f32 = 6.0;
+        pub const KEY_GAP: f32 = 4.0;
     }
 }
 
