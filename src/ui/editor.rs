@@ -97,6 +97,8 @@ pub struct Editor {
     show_palette: bool,
     palette_query: String,
     palette_index: usize,
+    /// Id of the last executed command, surfaced as upstream's "Recents" row.
+    palette_last_used: Option<&'static str>,
 
     show_find: bool,
     find_query: String,
@@ -125,6 +127,10 @@ pub struct Editor {
 
     show_image_dialog: bool,
     pending_image_dialog: bool,
+    /// Set by the palette's copy-as-PNG/SVG rows; the render pass performs the
+    /// clipboard write, which needs `App`.
+    pending_copy_png: bool,
+    pending_copy_svg: bool,
     export_scale: f32,
     export_with_background: bool,
     export_dark_mode: bool,
@@ -208,6 +214,7 @@ impl Editor {
             show_palette: false,
             palette_query: String::new(),
             palette_index: 0,
+            palette_last_used: None,
             show_find: false,
             find_query: String::new(),
             find_matches: Vec::new(),
@@ -225,6 +232,8 @@ impl Editor {
             pending_scene_save: false,
             show_image_dialog: false,
             pending_image_dialog: false,
+            pending_copy_png: false,
+            pending_copy_svg: false,
             export_scale: 1.0,
             export_with_background: true,
             export_dark_mode: false,
@@ -1693,27 +1702,71 @@ impl Editor {
         }
     }
 
-    pub fn palette_results(
-        &self,
-    ) -> Vec<(
-        &'static str,
-        &'static str,
-        Option<&'static str>,
-        &'static str,
-    )> {
-        let needle = self.palette_query.to_lowercase();
-        PALETTE_COMMANDS
+    /// Commands that pass both the query and upstream's availability
+    /// predicate, in upstream's category order. The table is already grouped by
+    /// category, so a stable sort preserves the order inside each one.
+    fn palette_results(&self) -> Vec<&'static PaletteCommand> {
+        let needle = self.palette_needle();
+        let mut hits: Vec<&PaletteCommand> = PALETTE_COMMANDS
             .iter()
-            .filter(|c| self.palette_matches(c, &needle))
-            .map(|c| (c.id, c.label, c.shortcut, c.icon))
-            .collect()
+            .filter(|command| command.available(self))
+            .filter(|command| self.palette_matches(command, &needle))
+            .collect();
+        hits.sort_by_key(|command| command.category.order());
+        hits
+    }
+
+    fn palette_needle(&self) -> String {
+        self.palette_query.trim().to_lowercase()
     }
 
     fn palette_matches(&self, command: &PaletteCommand, needle: &str) -> bool {
         if needle.is_empty() {
             return true;
         }
-        self.i18n.t(command.label).to_lowercase().contains(needle) || command.id.contains(needle)
+        self.i18n.t(command.label).to_lowercase().contains(needle)
+            || command.id.contains(needle)
+            || command.keywords.contains(needle)
+    }
+
+    /// The command upstream repeats in its "Recents" section: only on an empty
+    /// query, and only while it is still available.
+    fn palette_recent(&self) -> Option<&'static PaletteCommand> {
+        if !self.palette_needle().is_empty() {
+            return None;
+        }
+        let id = self.palette_last_used?;
+        PALETTE_COMMANDS
+            .iter()
+            .find(|command| command.id == id && command.available(self))
+    }
+
+    /// The sections the palette paints, in order: an optional Recents section
+    /// followed by the query's category groups.
+    fn palette_sections(&self) -> Vec<(&'static str, Vec<&'static PaletteCommand>)> {
+        let recent = self.palette_recent();
+        let mut sections: Vec<(&'static str, Vec<&PaletteCommand>)> = Vec::new();
+        if let Some(recent) = recent {
+            sections.push(("commandPalette.recents", vec![recent]));
+        }
+        for command in self.palette_results() {
+            if Some(command.id) == recent.map(|recent| recent.id) {
+                continue;
+            }
+            match sections.last_mut() {
+                Some((title, items)) if *title == command.category.title() => items.push(command),
+                _ => sections.push((command.category.title(), vec![command])),
+            }
+        }
+        sections
+    }
+
+    /// The rows in visual order, which is also the order the arrow keys walk.
+    fn palette_display(&self) -> Vec<&'static PaletteCommand> {
+        self.palette_sections()
+            .into_iter()
+            .flat_map(|(_, items)| items)
+            .collect()
     }
 
     pub fn palette_labels() -> Vec<&'static str> {
@@ -1739,16 +1792,18 @@ impl Editor {
     }
 
     fn run_palette_selection(&mut self) {
-        let needle = self.palette_query.to_lowercase();
-        let picked = PALETTE_COMMANDS
-            .iter()
-            .filter(|c| self.palette_matches(c, &needle))
-            .nth(self.palette_index)
-            .map(|c| c.action);
+        let picked = self
+            .palette_display()
+            .get(self.palette_index)
+            .map(|command| (command.id, command.action));
+        // Rows upstream ships without a local handler are listed but inert, so
+        // picking or confirming one runs nothing and leaves the dialog up.
+        let Some((id, Some(action))) = picked else {
+            return;
+        };
         self.show_palette = false;
-        if let Some(action) = picked {
-            action.run(self);
-        }
+        self.palette_last_used = Some(id);
+        action.run(self);
     }
 
     pub fn open_find(&mut self) {
@@ -2228,6 +2283,11 @@ impl Editor {
         }
     }
 
+    fn export_dialog_copy_svg(&mut self, cx: &App) {
+        cx.write_to_clipboard(ClipboardItem::new_string(self.export_dialog_svg_string()));
+        self.status = Some("svg: clipboard".to_string());
+    }
+
     fn handle_export_key(
         &mut self,
         key: &str,
@@ -2578,7 +2638,7 @@ impl Editor {
                 return true;
             }
             "down" | "arrowdown" => {
-                if self.palette_index + 1 < self.palette_results().len() {
+                if self.palette_index + 1 < self.palette_display().len() {
                     self.palette_index += 1;
                 }
                 return true;
@@ -3592,6 +3652,14 @@ impl Render for Editor {
         if self.pending_image_dialog {
             self.pending_image_dialog = false;
             self.open_image_dialog();
+        }
+        if self.pending_copy_png {
+            self.pending_copy_png = false;
+            self.export_dialog_copy_png(cx);
+        }
+        if self.pending_copy_svg {
+            self.pending_copy_svg = false;
+            self.export_dialog_copy_svg(cx);
         }
         let active_tool = self.document.tool;
         let zoom_pct = (self.document.zoom * 100.0).round() as i32;
@@ -5980,13 +6048,85 @@ impl Editor {
     }
 }
 
+/// The palette's grouping, mirroring upstream `DEFAULT_CATEGORIES`. Upstream
+/// renders these names raw (they are never run through `t()`), so the titles
+/// stay English in every locale.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PaletteCategory {
+    App,
+    Export,
+    Editor,
+    Tools,
+    Elements,
+}
+
+impl PaletteCategory {
+    fn title(self) -> &'static str {
+        match self {
+            Self::App => "App",
+            Self::Export => "Export",
+            Self::Editor => "Editor",
+            Self::Tools => "Tools",
+            Self::Elements => "Elements",
+        }
+    }
+
+    /// Upstream's `getCategoryOrder` puts App first and the rest below it.
+    /// Only the five categories we populate are listed.
+    fn order(self) -> u8 {
+        match self {
+            Self::App => 1,
+            Self::Export => 2,
+            Self::Editor => 3,
+            Self::Tools => 4,
+            Self::Elements => 5,
+        }
+    }
+}
+
 struct PaletteCommand {
     id: &'static str,
-
     label: &'static str,
     shortcut: Option<&'static str>,
     icon: &'static str,
-    action: PaletteAction,
+    category: PaletteCategory,
+    /// Extra search terms, mirroring upstream's `haystack` field.
+    keywords: &'static str,
+    /// Upstream's `predicate`, reduced to the checks this app can make.
+    gate: PaletteGate,
+    /// `None` marks a command upstream ships that this app has no handler for.
+    /// The row stays listed, greyed out and unclickable, so the palette still
+    /// matches upstream's full command set.
+    action: Option<PaletteAction>,
+}
+
+/// Upstream's command `predicate`, reduced to the conditions this app can
+/// evaluate. Failing the gate hides the row outright, the way upstream drops
+/// commands before rendering them.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PaletteGate {
+    /// Always listed.
+    Always,
+    /// Only once something is selected.
+    Selection,
+    /// Only once the canvas holds at least one element.
+    Elements,
+}
+
+impl PaletteCommand {
+    fn available(&self, editor: &Editor) -> bool {
+        match self.gate {
+            PaletteGate::Always => true,
+            PaletteGate::Selection => !editor.document.selected.is_empty(),
+            PaletteGate::Elements => editor.document.scene.non_deleted().next().is_some(),
+        }
+    }
+
+    /// Rows without an action are upstream commands this app does not
+    /// implement: they render greyed out and ignore clicks.
+    fn implemented(&self) -> bool {
+        self.action.is_some()
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -5999,7 +6139,6 @@ enum PaletteAction {
     SelectAll,
     Copy,
     Cut,
-    Paste,
     Group,
     Ungroup,
     ZoomIn,
@@ -6009,13 +6148,19 @@ enum PaletteAction {
     ZoomSelection,
     ToggleTheme,
     ToggleGrid,
+    ToggleSnap,
     ToggleZen,
     ToggleView,
     ToggleStats,
     ToggleLock,
+    ToggleLibrary,
     Save,
-    Open,
     ExportPng,
+    CopyAsPng,
+    CopyAsSvg,
+    StrokePopup,
+    FillPopup,
+    CanvasBackground,
     NewCanvas,
     Find,
     Help,
@@ -6033,7 +6178,6 @@ impl PaletteAction {
             PaletteAction::SelectAll => editor.document.select_all(),
             PaletteAction::Copy => editor.on_copy(),
             PaletteAction::Cut => editor.on_cut(),
-            PaletteAction::Paste => editor.on_paste(),
             PaletteAction::Group => editor.on_group(),
             PaletteAction::Ungroup => editor.on_ungroup(),
             PaletteAction::ZoomIn => editor.on_zoom_in(),
@@ -6043,16 +6187,27 @@ impl PaletteAction {
             PaletteAction::ZoomSelection => editor.document.zoom_to_selection(viewport, 40.0),
             PaletteAction::ToggleTheme => editor.on_toggle_theme(),
             PaletteAction::ToggleGrid => editor.on_toggle_grid(),
+            PaletteAction::ToggleSnap => {
+                editor.document.snap_to_objects = !editor.document.snap_to_objects;
+            }
             PaletteAction::ToggleZen => editor.document.zen_mode = !editor.document.zen_mode,
             PaletteAction::ToggleView => editor.document.view_mode = !editor.document.view_mode,
             PaletteAction::ToggleStats => editor.document.show_stats = !editor.document.show_stats,
             PaletteAction::ToggleLock => editor.document.tool_locked = !editor.document.tool_locked,
-
+            PaletteAction::ToggleLibrary => editor.on_toggle_library(),
             PaletteAction::Save => editor.pending_save_dialog = true,
-
-            PaletteAction::Open => editor.pending_scene_open = true,
             PaletteAction::ExportPng => {
                 editor.pending_image_dialog = true;
+            }
+            // The clipboard needs `App`, which `run` does not carry, so these
+            // two mark a flag the render pass picks up.
+            PaletteAction::CopyAsPng => editor.pending_copy_png = true,
+            PaletteAction::CopyAsSvg => editor.pending_copy_svg = true,
+            PaletteAction::StrokePopup => editor.toggle_color_popup(ColorTarget::Stroke),
+            PaletteAction::FillPopup => editor.toggle_color_popup(ColorTarget::Background),
+            PaletteAction::CanvasBackground => {
+                editor.set_menu_open(true);
+                editor.toggle_color_popup(ColorTarget::CanvasBackground);
             }
             PaletteAction::NewCanvas => editor.on_new_document(),
             PaletteAction::Find => editor.open_find(),
@@ -6061,286 +6216,795 @@ impl PaletteAction {
     }
 }
 
+// Rows transcribed from upstream CommandPalette.tsx, in its declaration
+// order, with the host-only entries the released palette adds (live
+// collaboration, share, export to Excalidraw+). Commands this app has no
+// handler for carry `action: None` and render greyed out.
 const PALETTE_COMMANDS: &[PaletteCommand] = &[
+    // ---- App ----
     PaletteCommand {
-        id: "tool-select",
-        label: "toolbar.select",
-        shortcut: Some("V"),
-        icon: "SelectionIcon",
-        action: PaletteAction::Tool(Tool::Selection),
+        id: "app-theme",
+        label: "labels.toggleTheme",
+        shortcut: Some("Shift+Alt+D"),
+        icon: "themeDarkIcon",
+        category: PaletteCategory::App,
+        keywords: "dark light mode theme appearance",
+        gate: PaletteGate::Always,
+        action: Some(PaletteAction::ToggleTheme),
     },
     PaletteCommand {
+        id: "app-library",
+        label: "toolBar.library",
+        shortcut: None,
+        icon: "LibraryIcon",
+        category: PaletteCategory::App,
+        keywords: "library assets shapes panel",
+        gate: PaletteGate::Always,
+        action: Some(PaletteAction::ToggleLibrary),
+    },
+    PaletteCommand {
+        id: "app-search",
+        label: "search.title",
+        shortcut: Some("Ctrl+F"),
+        icon: "searchIcon",
+        category: PaletteCategory::App,
+        keywords: "find search text locate",
+        gate: PaletteGate::Always,
+        action: Some(PaletteAction::Find),
+    },
+    PaletteCommand {
+        id: "app-live-collab",
+        label: "labels.liveCollaboration",
+        shortcut: None,
+        icon: "collabIcon",
+        category: PaletteCategory::App,
+        keywords: "live collaboration multiplayer session share",
+        gate: PaletteGate::Always,
+        action: None,
+    },
+    PaletteCommand {
+        id: "app-share",
+        label: "labels.share",
+        shortcut: None,
+        icon: "shareIcon",
+        category: PaletteCategory::App,
+        keywords: "share publish link",
+        gate: PaletteGate::Always,
+        action: None,
+    },
+    // ---- Export ----
+    PaletteCommand {
+        id: "export-image",
+        label: "buttons.exportImage",
+        shortcut: Some("Ctrl+Shift+E"),
+        icon: "ExportImageIcon",
+        category: PaletteCategory::Export,
+        keywords: "export png svg image render download picture",
+        gate: PaletteGate::Always,
+        action: Some(PaletteAction::ExportPng),
+    },
+    PaletteCommand {
+        id: "export-save",
+        label: "exportDialog.disk_title",
+        shortcut: Some("Ctrl+S"),
+        icon: "ExportIcon",
+        category: PaletteCategory::Export,
+        keywords: "save file disk write download",
+        gate: PaletteGate::Always,
+        action: Some(PaletteAction::Save),
+    },
+    PaletteCommand {
+        id: "export-copy-png",
+        label: "labels.copyAsPng",
+        shortcut: Some("Shift+Alt+C"),
+        icon: "pngIcon",
+        category: PaletteCategory::Export,
+        keywords: "copy png image clipboard",
+        gate: PaletteGate::Elements,
+        action: Some(PaletteAction::CopyAsPng),
+    },
+    PaletteCommand {
+        id: "export-copy-svg",
+        label: "labels.copyAsSvg",
+        shortcut: Some("Shift+Alt+C"),
+        icon: "svgIcon",
+        category: PaletteCategory::Export,
+        keywords: "copy svg clipboard vector",
+        gate: PaletteGate::Elements,
+        action: Some(PaletteAction::CopyAsSvg),
+    },
+    PaletteCommand {
+        id: "export-to-plus",
+        label: "overwriteConfirm.action.excalidrawPlus.button",
+        shortcut: None,
+        icon: "exportToPlusIcon",
+        category: PaletteCategory::Export,
+        keywords: "excalidraw plus cloud export",
+        gate: PaletteGate::Always,
+        action: None,
+    },
+    // ---- Editor ----
+    PaletteCommand {
+        id: "editor-undo",
+        label: "buttons.undo",
+        shortcut: Some("Ctrl+Z"),
+        icon: "UndoIcon",
+        category: PaletteCategory::Editor,
+        keywords: "undo revert back",
+        gate: PaletteGate::Always,
+        action: Some(PaletteAction::Undo),
+    },
+    PaletteCommand {
+        id: "editor-redo",
+        label: "buttons.redo",
+        shortcut: Some("Ctrl+Shift+Z"),
+        icon: "RedoIcon",
+        category: PaletteCategory::Editor,
+        keywords: "redo forward again",
+        gate: PaletteGate::Always,
+        action: Some(PaletteAction::Redo),
+    },
+    PaletteCommand {
+        id: "editor-zoom-in",
+        label: "buttons.zoomIn",
+        shortcut: Some("Ctrl++"),
+        icon: "ZoomInIcon",
+        category: PaletteCategory::Editor,
+        keywords: "zoom in enlarge bigger magnify",
+        gate: PaletteGate::Always,
+        action: Some(PaletteAction::ZoomIn),
+    },
+    PaletteCommand {
+        id: "editor-zoom-out",
+        label: "buttons.zoomOut",
+        shortcut: Some("Ctrl+-"),
+        icon: "ZoomOutIcon",
+        category: PaletteCategory::Editor,
+        keywords: "zoom out shrink smaller",
+        gate: PaletteGate::Always,
+        action: Some(PaletteAction::ZoomOut),
+    },
+    PaletteCommand {
+        id: "editor-zoom-reset",
+        label: "buttons.resetZoom",
+        shortcut: Some("Ctrl+0"),
+        icon: "resetZoom",
+        category: PaletteCategory::Editor,
+        keywords: "reset zoom actual size 100",
+        gate: PaletteGate::Always,
+        action: Some(PaletteAction::ZoomReset),
+    },
+    PaletteCommand {
+        id: "editor-zoom-fit",
+        label: "labels.zoomToFit",
+        shortcut: Some("Shift+1"),
+        icon: "zoomAreaIcon",
+        category: PaletteCategory::Editor,
+        keywords: "zoom to fit all elements page",
+        gate: PaletteGate::Always,
+        action: Some(PaletteAction::ZoomFit),
+    },
+    PaletteCommand {
+        id: "editor-zen",
+        label: "buttons.zenMode",
+        shortcut: Some("Alt+Z"),
+        icon: "eyeIcon",
+        category: PaletteCategory::Editor,
+        keywords: "zen mode focus hide ui",
+        gate: PaletteGate::Always,
+        action: Some(PaletteAction::ToggleZen),
+    },
+    PaletteCommand {
+        id: "editor-view-mode",
+        label: "labels.viewMode",
+        shortcut: Some("Alt+R"),
+        icon: "eyeClosedIcon",
+        category: PaletteCategory::Editor,
+        keywords: "view mode read only preview",
+        gate: PaletteGate::Always,
+        action: Some(PaletteAction::ToggleView),
+    },
+    PaletteCommand {
+        id: "editor-grid",
+        label: "labels.toggleGrid",
+        shortcut: Some("Ctrl+'"),
+        icon: "gridIcon",
+        category: PaletteCategory::Editor,
+        keywords: "grid background toggle",
+        gate: PaletteGate::Always,
+        action: Some(PaletteAction::ToggleGrid),
+    },
+    PaletteCommand {
+        id: "editor-snap",
+        label: "buttons.objectsSnapMode",
+        shortcut: Some("Alt+S"),
+        icon: "magnetIcon",
+        category: PaletteCategory::Editor,
+        keywords: "snap objects magnet alignment",
+        gate: PaletteGate::Always,
+        action: Some(PaletteAction::ToggleSnap),
+    },
+    PaletteCommand {
+        id: "editor-show-hints",
+        label: "labels.showHints",
+        shortcut: None,
+        icon: "messageCircleIcon",
+        category: PaletteCategory::Editor,
+        keywords: "hints labels tooltips show",
+        gate: PaletteGate::Always,
+        action: None,
+    },
+    PaletteCommand {
+        id: "editor-shortcuts",
+        label: "welcomeScreen.defaults.helpHint",
+        shortcut: Some("?"),
+        icon: "HelpIcon",
+        category: PaletteCategory::Editor,
+        keywords: "help shortcuts keyboard documentation",
+        gate: PaletteGate::Always,
+        action: Some(PaletteAction::Help),
+    },
+    PaletteCommand {
+        id: "editor-select-all",
+        label: "labels.selectAll",
+        shortcut: Some("Ctrl+A"),
+        icon: "selectAllIcon",
+        category: PaletteCategory::Editor,
+        keywords: "select all elements everything",
+        gate: PaletteGate::Always,
+        action: Some(PaletteAction::SelectAll),
+    },
+    PaletteCommand {
+        id: "editor-element-lock",
+        label: "labels.elementLock.lock",
+        shortcut: Some("Ctrl+Shift+L"),
+        icon: "LockedIcon",
+        category: PaletteCategory::Editor,
+        keywords: "lock element freeze selection",
+        gate: PaletteGate::Selection,
+        action: None,
+    },
+    PaletteCommand {
+        id: "editor-unlock-all",
+        label: "labels.elementLock.unlockAll",
+        shortcut: None,
+        icon: "UnlockedIcon",
+        category: PaletteCategory::Editor,
+        keywords: "unlock all elements locked",
+        gate: PaletteGate::Always,
+        action: None,
+    },
+    PaletteCommand {
+        id: "editor-stats",
+        label: "stats.fullTitle",
+        shortcut: Some("Alt+/"),
+        icon: "slidersIcon",
+        category: PaletteCategory::Editor,
+        keywords: "stats properties canvas information",
+        gate: PaletteGate::Always,
+        action: Some(PaletteAction::ToggleStats),
+    },
+    PaletteCommand {
+        id: "editor-clear",
+        label: "buttons.clearReset",
+        shortcut: Some("Ctrl+Delete"),
+        icon: "TrashIcon",
+        category: PaletteCategory::Editor,
+        keywords: "clear reset canvas delete destroy",
+        gate: PaletteGate::Always,
+        action: Some(PaletteAction::NewCanvas),
+    },
+    PaletteCommand {
+        id: "editor-canvas-background",
+        label: "labels.canvasBackground",
+        shortcut: None,
+        icon: "bucketFillIcon",
+        category: PaletteCategory::Editor,
+        keywords: "canvas background color",
+        gate: PaletteGate::Always,
+        action: Some(PaletteAction::CanvasBackground),
+    },
+    // ---- Tools ----
+    PaletteCommand {
         id: "tool-hand",
-        label: "toolbar.hand",
+        label: "toolBar.hand",
         shortcut: Some("H"),
         icon: "handIcon",
-        action: PaletteAction::Tool(Tool::Hand),
+        category: PaletteCategory::Tools,
+        keywords: "hand pan grab move canvas",
+        gate: PaletteGate::Always,
+        action: Some(PaletteAction::Tool(Tool::Hand)),
+    },
+    PaletteCommand {
+        id: "tool-selection",
+        label: "toolBar.selection",
+        shortcut: Some("V"),
+        icon: "SelectionIcon",
+        category: PaletteCategory::Tools,
+        keywords: "selection select pointer cursor move",
+        gate: PaletteGate::Always,
+        action: Some(PaletteAction::Tool(Tool::Selection)),
     },
     PaletteCommand {
         id: "tool-rectangle",
-        label: "toolbar.rectangle",
+        label: "toolBar.rectangle",
         shortcut: Some("R"),
         icon: "RectangleIcon",
-        action: PaletteAction::Tool(Tool::Rectangle),
+        category: PaletteCategory::Tools,
+        keywords: "rectangle box square shape",
+        gate: PaletteGate::Always,
+        action: Some(PaletteAction::Tool(Tool::Rectangle)),
     },
     PaletteCommand {
         id: "tool-diamond",
-        label: "toolbar.diamond",
+        label: "toolBar.diamond",
         shortcut: Some("D"),
         icon: "DiamondIcon",
-        action: PaletteAction::Tool(Tool::Diamond),
+        category: PaletteCategory::Tools,
+        keywords: "diamond rhombus shape",
+        gate: PaletteGate::Always,
+        action: Some(PaletteAction::Tool(Tool::Diamond)),
     },
     PaletteCommand {
         id: "tool-ellipse",
-        label: "toolbar.ellipse",
+        label: "toolBar.ellipse",
         shortcut: Some("O"),
         icon: "EllipseIcon",
-        action: PaletteAction::Tool(Tool::Ellipse),
+        category: PaletteCategory::Tools,
+        keywords: "ellipse circle oval shape",
+        gate: PaletteGate::Always,
+        action: Some(PaletteAction::Tool(Tool::Ellipse)),
     },
     PaletteCommand {
         id: "tool-arrow",
-        label: "toolbar.arrow",
+        label: "toolBar.arrow",
         shortcut: Some("A"),
         icon: "ArrowIcon",
-        action: PaletteAction::Tool(Tool::Arrow),
+        category: PaletteCategory::Tools,
+        keywords: "arrow connector line shape",
+        gate: PaletteGate::Always,
+        action: Some(PaletteAction::Tool(Tool::Arrow)),
     },
     PaletteCommand {
         id: "tool-line",
-        label: "toolbar.line",
+        label: "toolBar.line",
         shortcut: Some("L"),
         icon: "LineIcon",
-        action: PaletteAction::Tool(Tool::Line),
+        category: PaletteCategory::Tools,
+        keywords: "line edge shape",
+        gate: PaletteGate::Always,
+        action: Some(PaletteAction::Tool(Tool::Line)),
     },
     PaletteCommand {
         id: "tool-freedraw",
-        label: "toolbar.freedraw",
+        label: "toolBar.freedraw",
         shortcut: Some("P"),
         icon: "FreedrawIcon",
-        action: PaletteAction::Tool(Tool::FreeDraw),
+        category: PaletteCategory::Tools,
+        keywords: "freedraw pencil draw sketch",
+        gate: PaletteGate::Always,
+        action: Some(PaletteAction::Tool(Tool::FreeDraw)),
     },
     PaletteCommand {
         id: "tool-text",
-        label: "toolbar.text",
+        label: "toolBar.text",
         shortcut: Some("T"),
         icon: "TextIcon",
-        action: PaletteAction::Tool(Tool::Text),
+        category: PaletteCategory::Tools,
+        keywords: "text label type words",
+        gate: PaletteGate::Always,
+        action: Some(PaletteAction::Tool(Tool::Text)),
+    },
+    PaletteCommand {
+        id: "tool-stickynote",
+        label: "toolBar.stickynote",
+        shortcut: Some("N"),
+        icon: "stickyNoteToolIcon",
+        category: PaletteCategory::Tools,
+        keywords: "sticky note post it memo",
+        gate: PaletteGate::Always,
+        action: Some(PaletteAction::Tool(Tool::StickyNote)),
     },
     PaletteCommand {
         id: "tool-image",
-        label: "toolbar.image",
+        label: "toolBar.image",
         shortcut: Some("9"),
         icon: "ImageIcon",
-        action: PaletteAction::Tool(Tool::Image),
-    },
-    PaletteCommand {
-        id: "tool-frame",
-        label: "toolbar.frame",
-        shortcut: Some("F"),
-        icon: "frameToolIcon",
-        action: PaletteAction::Tool(Tool::Frame),
+        category: PaletteCategory::Tools,
+        keywords: "image picture photo insert",
+        gate: PaletteGate::Always,
+        action: Some(PaletteAction::Tool(Tool::Image)),
     },
     PaletteCommand {
         id: "tool-eraser",
-        label: "toolbar.eraser",
+        label: "toolBar.eraser",
         shortcut: Some("E"),
         icon: "EraserIcon",
-        action: PaletteAction::Tool(Tool::Eraser),
+        category: PaletteCategory::Tools,
+        keywords: "eraser erase delete remove",
+        gate: PaletteGate::Always,
+        action: Some(PaletteAction::Tool(Tool::Eraser)),
+    },
+    PaletteCommand {
+        id: "tool-frame",
+        label: "toolBar.frame",
+        shortcut: Some("F"),
+        icon: "frameToolIcon",
+        category: PaletteCategory::Tools,
+        keywords: "frame group container board",
+        gate: PaletteGate::Always,
+        action: Some(PaletteAction::Tool(Tool::Frame)),
     },
     PaletteCommand {
         id: "tool-laser",
-        label: "toolbar.laser",
+        label: "toolBar.laser",
         shortcut: Some("K"),
         icon: "laserPointerToolIcon",
-        action: PaletteAction::Tool(Tool::Laser),
+        category: PaletteCategory::Tools,
+        keywords: "laser pointer present highlight",
+        gate: PaletteGate::Always,
+        action: Some(PaletteAction::Tool(Tool::Laser)),
     },
     PaletteCommand {
-        id: "action-undo",
-        label: "action.undo",
-        shortcut: Some("Ctrl+Z"),
-        icon: "UndoIcon",
-        action: PaletteAction::Undo,
-    },
-    PaletteCommand {
-        id: "action-redo",
-        label: "action.redo",
-        shortcut: Some("Ctrl+Shift+Z"),
-        icon: "RedoIcon",
-        action: PaletteAction::Redo,
-    },
-    PaletteCommand {
-        id: "action-duplicate",
-        label: "action.duplicate",
-        shortcut: Some("Ctrl+D"),
-        icon: "DuplicateIcon",
-        action: PaletteAction::Duplicate,
-    },
-    PaletteCommand {
-        id: "action-delete",
-        label: "action.delete",
-        shortcut: Some("Del"),
-        icon: "TrashIcon",
-        action: PaletteAction::Delete,
-    },
-    PaletteCommand {
-        id: "action-select-all",
-        label: "ctx.selectAll",
-        shortcut: Some("Ctrl+A"),
-        icon: "selectAllIcon",
-        action: PaletteAction::SelectAll,
-    },
-    PaletteCommand {
-        id: "action-copy",
-        label: "action.copyToClipboard",
-        shortcut: Some("Ctrl+C"),
-        icon: "copyIcon",
-        action: PaletteAction::Copy,
-    },
-    PaletteCommand {
-        id: "action-cut",
-        label: "ctx.cut",
-        shortcut: Some("Ctrl+X"),
-        icon: "cutIcon",
-        action: PaletteAction::Cut,
-    },
-    PaletteCommand {
-        id: "action-paste",
-        label: "ctx.paste",
-        shortcut: Some("Ctrl+V"),
-        icon: "clipboard",
-        action: PaletteAction::Paste,
-    },
-    PaletteCommand {
-        id: "action-group",
-        label: "action.group",
-        shortcut: Some("Ctrl+G"),
-        icon: "GroupIcon",
-        action: PaletteAction::Group,
-    },
-    PaletteCommand {
-        id: "action-ungroup",
-        label: "action.ungroup",
-        shortcut: Some("Ctrl+Shift+G"),
-        icon: "UngroupIcon",
-        action: PaletteAction::Ungroup,
-    },
-    PaletteCommand {
-        id: "view-zoom-in",
-        label: "action.zoomIn",
-        shortcut: Some("Ctrl++"),
-        icon: "ZoomInIcon",
-        action: PaletteAction::ZoomIn,
-    },
-    PaletteCommand {
-        id: "view-zoom-out",
-        label: "action.zoomOut",
-        shortcut: Some("Ctrl+-"),
-        icon: "ZoomOutIcon",
-        action: PaletteAction::ZoomOut,
-    },
-    PaletteCommand {
-        id: "view-zoom-reset",
-        label: "action.resetZoom",
-        shortcut: Some("Ctrl+0"),
-        icon: "resetZoom",
-        action: PaletteAction::ZoomReset,
-    },
-    PaletteCommand {
-        id: "view-zoom-fit",
-        label: "action.zoomToFit",
-        shortcut: Some("Shift+1"),
-        icon: "zoomAreaIcon",
-        action: PaletteAction::ZoomFit,
-    },
-    PaletteCommand {
-        id: "view-zoom-selection",
-        label: "menu.viewMode",
-        shortcut: Some("Shift+2"),
-        icon: "zoomAreaIcon",
-        action: PaletteAction::ZoomSelection,
-    },
-    PaletteCommand {
-        id: "view-theme",
-        label: "action.toggleTheme",
-        shortcut: None,
-        icon: "themeDarkIcon",
-        action: PaletteAction::ToggleTheme,
-    },
-    PaletteCommand {
-        id: "view-grid",
-        label: "action.toggleGrid",
-        shortcut: Some("Ctrl+'"),
-        icon: "gridIcon",
-        action: PaletteAction::ToggleGrid,
-    },
-    PaletteCommand {
-        id: "view-zen",
-        label: "menu.zenMode",
-        shortcut: Some("Alt+Z"),
-        icon: "eyeIcon",
-        action: PaletteAction::ToggleZen,
-    },
-    PaletteCommand {
-        id: "view-readonly",
-        label: "menu.viewMode",
-        shortcut: Some("Alt+R"),
-        icon: "eyeClosedIcon",
-        action: PaletteAction::ToggleView,
-    },
-    PaletteCommand {
-        id: "view-stats",
-        label: "menu.canvasStats",
-        shortcut: Some("Alt+/"),
-        icon: "slidersIcon",
-        action: PaletteAction::ToggleStats,
-    },
-    PaletteCommand {
-        id: "view-tool-lock",
-        label: "menu.toolLock",
+        id: "tool-lock",
+        label: "toolBar.lock",
         shortcut: Some("Q"),
         icon: "LockedIcon",
-        action: PaletteAction::ToggleLock,
+        category: PaletteCategory::Tools,
+        keywords: "lock keep tool selected",
+        gate: PaletteGate::Always,
+        action: Some(PaletteAction::ToggleLock),
+    },
+    // ---- Elements ----
+    PaletteCommand {
+        id: "element-group",
+        label: "labels.group",
+        shortcut: Some("Ctrl+G"),
+        icon: "GroupIcon",
+        category: PaletteCategory::Elements,
+        keywords: "group combine merge elements",
+        gate: PaletteGate::Selection,
+        action: Some(PaletteAction::Group),
     },
     PaletteCommand {
-        id: "file-save",
-        label: "menu.save",
-        shortcut: Some("Ctrl+S"),
-        icon: "ExportIcon",
-        action: PaletteAction::Save,
+        id: "element-ungroup",
+        label: "labels.ungroup",
+        shortcut: Some("Ctrl+Shift+G"),
+        icon: "UngroupIcon",
+        category: PaletteCategory::Elements,
+        keywords: "ungroup split separate elements",
+        gate: PaletteGate::Selection,
+        action: Some(PaletteAction::Ungroup),
     },
     PaletteCommand {
-        id: "file-open",
-        label: "menu.open",
-        shortcut: Some("Ctrl+O"),
-        icon: "LoadIcon",
-        action: PaletteAction::Open,
+        id: "element-cut",
+        label: "labels.cut",
+        shortcut: Some("Ctrl+X"),
+        icon: "cutIcon",
+        category: PaletteCategory::Elements,
+        keywords: "cut scissors remove clipboard",
+        gate: PaletteGate::Selection,
+        action: Some(PaletteAction::Cut),
     },
     PaletteCommand {
-        id: "file-export-png",
-        label: "action.exportPng",
-        shortcut: Some("Ctrl+Shift+E"),
-        icon: "ExportImageIcon",
-        action: PaletteAction::ExportPng,
+        id: "element-copy",
+        label: "labels.copy",
+        shortcut: Some("Ctrl+C"),
+        icon: "copyIcon",
+        category: PaletteCategory::Elements,
+        keywords: "copy duplicate clipboard",
+        gate: PaletteGate::Selection,
+        action: Some(PaletteAction::Copy),
     },
     PaletteCommand {
-        id: "file-new",
-        label: "menu.reset",
-        shortcut: None,
+        id: "element-delete",
+        label: "labels.delete",
+        shortcut: Some("Del"),
         icon: "TrashIcon",
-        action: PaletteAction::NewCanvas,
+        category: PaletteCategory::Elements,
+        keywords: "delete remove trash erase",
+        gate: PaletteGate::Selection,
+        action: Some(PaletteAction::Delete),
     },
     PaletteCommand {
-        id: "overlay-find",
-        label: "menu.findOnCanvas",
-        shortcut: Some("Ctrl+F"),
-        icon: "searchIcon",
-        action: PaletteAction::Find,
+        id: "element-wrap-in-frame",
+        label: "labels.wrapSelectionInFrame",
+        shortcut: Some("Ctrl+Shift+F"),
+        icon: "frameToolIcon",
+        category: PaletteCategory::Elements,
+        keywords: "frame wrap selection container",
+        gate: PaletteGate::Selection,
+        action: None,
     },
     PaletteCommand {
-        id: "overlay-help",
-        label: "menu.help",
-        shortcut: Some("?"),
-        icon: "HelpIcon",
-        action: PaletteAction::Help,
+        id: "element-toggle-wrap",
+        label: "labels.toggleWrap",
+        shortcut: Some("W"),
+        icon: "boltIcon",
+        category: PaletteCategory::Elements,
+        keywords: "wrap text break line paragraph",
+        gate: PaletteGate::Selection,
+        action: None,
+    },
+    PaletteCommand {
+        id: "element-copy-styles",
+        label: "labels.copyStyles",
+        shortcut: Some("Ctrl+Alt+C"),
+        icon: "paintIcon",
+        category: PaletteCategory::Elements,
+        keywords: "copy styles format paint",
+        gate: PaletteGate::Selection,
+        action: None,
+    },
+    PaletteCommand {
+        id: "element-paste-styles",
+        label: "labels.pasteStyles",
+        shortcut: Some("Ctrl+Alt+V"),
+        icon: "paintIcon",
+        category: PaletteCategory::Elements,
+        keywords: "paste styles format paint",
+        gate: PaletteGate::Selection,
+        action: None,
+    },
+    PaletteCommand {
+        id: "element-bring-to-front",
+        label: "labels.bringToFront",
+        shortcut: Some("Ctrl+Shift+]"),
+        icon: "BringToFrontIcon",
+        category: PaletteCategory::Elements,
+        keywords: "bring to front order z index",
+        gate: PaletteGate::Selection,
+        action: None,
+    },
+    PaletteCommand {
+        id: "element-bring-forward",
+        label: "labels.bringForward",
+        shortcut: Some("Ctrl+]"),
+        icon: "BringForwardIcon",
+        category: PaletteCategory::Elements,
+        keywords: "bring forward order z index",
+        gate: PaletteGate::Selection,
+        action: None,
+    },
+    PaletteCommand {
+        id: "element-send-backward",
+        label: "labels.sendBackward",
+        shortcut: Some("Ctrl+["),
+        icon: "SendBackwardIcon",
+        category: PaletteCategory::Elements,
+        keywords: "send backward order z index",
+        gate: PaletteGate::Selection,
+        action: None,
+    },
+    PaletteCommand {
+        id: "element-send-to-back",
+        label: "labels.sendToBack",
+        shortcut: Some("Ctrl+Shift+["),
+        icon: "SendToBackIcon",
+        category: PaletteCategory::Elements,
+        keywords: "send to back order z index",
+        gate: PaletteGate::Selection,
+        action: None,
+    },
+    PaletteCommand {
+        id: "element-align-top",
+        label: "labels.alignTop",
+        shortcut: Some("Ctrl+Shift+Up"),
+        icon: "AlignTopIcon",
+        category: PaletteCategory::Elements,
+        keywords: "align top edge",
+        gate: PaletteGate::Selection,
+        action: None,
+    },
+    PaletteCommand {
+        id: "element-align-bottom",
+        label: "labels.alignBottom",
+        shortcut: Some("Ctrl+Shift+Down"),
+        icon: "AlignBottomIcon",
+        category: PaletteCategory::Elements,
+        keywords: "align bottom edge",
+        gate: PaletteGate::Selection,
+        action: None,
+    },
+    PaletteCommand {
+        id: "element-align-left",
+        label: "labels.alignLeft",
+        shortcut: Some("Ctrl+Shift+Left"),
+        icon: "AlignLeftIcon",
+        category: PaletteCategory::Elements,
+        keywords: "align left edge",
+        gate: PaletteGate::Selection,
+        action: None,
+    },
+    PaletteCommand {
+        id: "element-align-right",
+        label: "labels.alignRight",
+        shortcut: Some("Ctrl+Shift+Right"),
+        icon: "AlignRightIcon",
+        category: PaletteCategory::Elements,
+        keywords: "align right edge",
+        gate: PaletteGate::Selection,
+        action: None,
+    },
+    PaletteCommand {
+        id: "element-center-vertically",
+        label: "labels.centerVertically",
+        shortcut: None,
+        icon: "CenterVerticallyIcon",
+        category: PaletteCategory::Elements,
+        keywords: "align center vertical middle",
+        gate: PaletteGate::Selection,
+        action: None,
+    },
+    PaletteCommand {
+        id: "element-center-horizontally",
+        label: "labels.centerHorizontally",
+        shortcut: None,
+        icon: "CenterHorizontallyIcon",
+        category: PaletteCategory::Elements,
+        keywords: "align center horizontal middle",
+        gate: PaletteGate::Selection,
+        action: None,
+    },
+    PaletteCommand {
+        id: "element-duplicate",
+        label: "labels.duplicateSelection",
+        shortcut: Some("Ctrl+D"),
+        icon: "DuplicateIcon",
+        category: PaletteCategory::Elements,
+        keywords: "duplicate clone copy selection",
+        gate: PaletteGate::Selection,
+        action: Some(PaletteAction::Duplicate),
+    },
+    PaletteCommand {
+        id: "element-flip-horizontal",
+        label: "labels.flipHorizontal",
+        shortcut: Some("Shift+H"),
+        icon: "flipHorizontalIcon",
+        category: PaletteCategory::Elements,
+        keywords: "flip mirror horizontal",
+        gate: PaletteGate::Selection,
+        action: None,
+    },
+    PaletteCommand {
+        id: "element-flip-vertical",
+        label: "labels.flipVertical",
+        shortcut: Some("Shift+V"),
+        icon: "flipVerticalIcon",
+        category: PaletteCategory::Elements,
+        keywords: "flip mirror vertical",
+        gate: PaletteGate::Selection,
+        action: None,
+    },
+    PaletteCommand {
+        id: "element-zoom-fit",
+        label: "labels.zoomToFitSelection",
+        shortcut: Some("Shift+2"),
+        icon: "zoomAreaIcon",
+        category: PaletteCategory::Elements,
+        keywords: "zoom to fit selection selected elements",
+        gate: PaletteGate::Selection,
+        action: Some(PaletteAction::ZoomSelection),
+    },
+    PaletteCommand {
+        id: "element-zoom-fit-viewport",
+        label: "labels.zoomToFitViewport",
+        shortcut: Some("Shift+3"),
+        icon: "zoomAreaIcon",
+        category: PaletteCategory::Elements,
+        keywords: "zoom to fit selection viewport",
+        gate: PaletteGate::Selection,
+        action: None,
+    },
+    PaletteCommand {
+        id: "element-font-increase",
+        label: "labels.increaseFontSize",
+        shortcut: Some("Ctrl+Shift+>"),
+        icon: "fontSizeIcon",
+        category: PaletteCategory::Elements,
+        keywords: "increase font size text bigger",
+        gate: PaletteGate::Selection,
+        action: None,
+    },
+    PaletteCommand {
+        id: "element-font-decrease",
+        label: "labels.decreaseFontSize",
+        shortcut: Some("Ctrl+Shift+<"),
+        icon: "fontSizeIcon",
+        category: PaletteCategory::Elements,
+        keywords: "decrease font size text smaller",
+        gate: PaletteGate::Selection,
+        action: None,
+    },
+    PaletteCommand {
+        id: "element-line-editor",
+        label: "labels.lineEditor.edit",
+        shortcut: Some("Ctrl+Enter"),
+        icon: "polygonIcon",
+        category: PaletteCategory::Elements,
+        keywords: "edit line arrow points",
+        gate: PaletteGate::Selection,
+        action: None,
+    },
+    PaletteCommand {
+        id: "element-image-crop",
+        label: "labels.imageCropping",
+        shortcut: Some("Enter"),
+        icon: "cropIcon",
+        category: PaletteCategory::Elements,
+        keywords: "crop image cropping",
+        gate: PaletteGate::Selection,
+        action: None,
+    },
+    PaletteCommand {
+        id: "element-toggle-polygon",
+        label: "labels.polygon.convertToPolygon",
+        shortcut: None,
+        icon: "polygonIcon",
+        category: PaletteCategory::Elements,
+        keywords: "polygon convert line shape",
+        gate: PaletteGate::Selection,
+        action: None,
+    },
+    PaletteCommand {
+        id: "element-link",
+        label: "labels.link.label",
+        shortcut: None,
+        icon: "LinkIcon",
+        category: PaletteCategory::Elements,
+        keywords: "link hyperlink url element",
+        gate: PaletteGate::Selection,
+        action: None,
+    },
+    PaletteCommand {
+        id: "element-copy-link",
+        label: "labels.copyElementLink",
+        shortcut: None,
+        icon: "copyIcon",
+        category: PaletteCategory::Elements,
+        keywords: "copy element link url clipboard",
+        gate: PaletteGate::Selection,
+        action: None,
+    },
+    PaletteCommand {
+        id: "element-link-to",
+        label: "labels.linkToElement",
+        shortcut: None,
+        icon: "elementLinkIcon",
+        category: PaletteCategory::Elements,
+        keywords: "link to element connect",
+        gate: PaletteGate::Selection,
+        action: None,
+    },
+    PaletteCommand {
+        id: "element-shape-switch",
+        label: "labels.shapeSwitch",
+        shortcut: None,
+        icon: "boltIcon",
+        category: PaletteCategory::Elements,
+        keywords: "shape switch convert",
+        gate: PaletteGate::Selection,
+        action: None,
+    },
+    PaletteCommand {
+        id: "element-change-stroke",
+        label: "labels.changeStroke",
+        shortcut: None,
+        icon: "bucketFillIcon",
+        category: PaletteCategory::Elements,
+        keywords: "color outline stroke",
+        gate: PaletteGate::Selection,
+        action: Some(PaletteAction::StrokePopup),
+    },
+    PaletteCommand {
+        id: "element-change-background",
+        label: "labels.changeBackground",
+        shortcut: None,
+        icon: "bucketFillIcon",
+        category: PaletteCategory::Elements,
+        keywords: "color fill background",
+        gate: PaletteGate::Selection,
+        action: Some(PaletteAction::FillPopup),
     },
 ];
 
@@ -6539,84 +7203,275 @@ fn find_nav_button(
 
 impl Editor {
     fn render_palette(&self, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
-        let tokens = crate::design::Tokens::for_palette(palette_of(self.document.theme));
+        let tokens = Tokens::for_palette(palette_of(self.document.theme));
         let t = |k: &str| self.i18n.t(k);
-        let results = self.palette_results();
-        let width = 560.0_f32;
-        let left = ((self.viewport.0 as f32 - width) / 2.0).max(size::CONTAINER_PADDING);
+        use crate::design::size::command_palette as p;
 
-        let query_color = if self.palette_query.is_empty() {
-            tokens.shortcut_text()
-        } else {
-            tokens.surface_text()
-        };
-        let query_text = if self.palette_query.is_empty() {
-            t("palette.placeholder")
+        let sections = self.palette_sections();
+        // Upstream pins the dialog to `height: 100%` under a 750px cap on
+        // desktop widths, so the list always owns the leftover space.
+        let height = (self.viewport.1 as f32 - 2.0 * p::MODAL_PADDING).clamp(200.0, p::MAX_HEIGHT);
+
+        // The search field: upstream's TextField in its focused state, which is
+        // why it carries the brand-active border. It takes a single 12px inset
+        // because the component is rendered without a leading icon.
+        let field_text = if self.palette_query.is_empty() {
+            t("commandPalette.search.placeholder")
         } else {
             self.palette_query.clone()
         };
+        let field_color = if self.palette_query.is_empty() {
+            tokens.field_placeholder()
+        } else {
+            tokens.popup_text()
+        };
+        let field = div()
+            .id("palette-query")
+            .test_support()
+            .flex()
+            .flex_row()
+            .items_center()
+            .h(px(p::FIELD_HEIGHT))
+            .px(px(p::FIELD_PAD_X))
+            .bg(tokens.surface_low())
+            .border_1()
+            .border_color(tokens.brand_active())
+            .rounded(px(p::FIELD_RADIUS))
+            .text_size(px(p::FIELD_FONT))
+            .text_color(field_color)
+            .child(div().truncate().child(SharedString::from(field_text)));
 
-        let mut panel = chrome::dropdown(tokens)
-            .left(px(left))
-            .top(px(80.0))
-            .w(px(width))
-            .min_w(px(width))
-            .max_h(px(420.0))
-            .child(
+        // The centred hint strip that upstream paints under the field.
+        let hint = |keys: &[&str], desc: &str| {
+            let mut row = div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(px(p::HINT_GAP))
+                .h(px(p::HINT_HEIGHT));
+            for key in keys {
+                row = row.child(
+                    div()
+                        .flex_shrink_0()
+                        .flex()
+                        .items_center()
+                        .px(px(p::HINT_KEY_PAD_X))
+                        .h(px(p::HINT_HEIGHT))
+                        .rounded(px(p::HINT_KEY_RADIUS))
+                        .bg(tokens.selected_bg())
+                        .text_size(px(p::HINT_FONT))
+                        .text_color(tokens.popup_text())
+                        .child(SharedString::from(*key)),
+                );
+            }
+            row.child(
                 div()
-                    .id("palette-query")
+                    .ml(px(p::HINT_DESC_MARGIN))
+                    .text_size(px(p::HINT_FONT))
+                    .text_color(tokens.hint_desc())
+                    .child(SharedString::from(desc.to_owned())),
+            )
+        };
+        let hints = div()
+            .id("palette-hints")
+            .test_support()
+            .flex()
+            .flex_row()
+            .justify_center()
+            .gap(px(p::HINTS_GAP))
+            .mt(px(p::HINTS_MARGIN_TOP))
+            .child(hint(
+                &["\u{2191}\u{2193}"],
+                &t("commandPalette.shortcuts.select"),
+            ))
+            .child(hint(&["\u{21b5}"], &t("commandPalette.shortcuts.confirm")))
+            .child(hint(&["Esc"], &t("commandPalette.shortcuts.close")));
+
+        // One chip per key, splitting "Ctrl+Shift+E" the way upstream's
+        // `Shortcut` component does.
+        let shortcut_keys = |shortcut: &str| {
+            let mut keys = div()
+                .flex_shrink_0()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(px(p::KEY_GAP));
+            for part in help_chip_parts(shortcut) {
+                keys = keys.child(
+                    div()
+                        .flex_shrink_0()
+                        .flex()
+                        .items_center()
+                        .px(px(p::KEY_PAD_X))
+                        .h(px(p::KEY_HEIGHT))
+                        .rounded(px(p::KEY_RADIUS))
+                        .bg(tokens.selected_bg())
+                        .text_size(px(p::KEY_FONT))
+                        .text_color(tokens.popup_text())
+                        .child(SharedString::from(part)),
+                );
+            }
+            keys
+        };
+
+        let mut sections_ui: Vec<gpui_kit::AnyElement> = Vec::new();
+        let mut index = 0usize;
+        for (title, items) in &sections {
+            let recents = *title == "commandPalette.recents";
+            // Upstream prints the Recents title first and tags the history icon
+            // onto its right edge with a 6px margin.
+            let mut heading = div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .mb(px(p::CATEGORY_MARGIN_BOTTOM))
+                .text_size(px(p::CATEGORY_FONT))
+                .font_semibold()
+                .text_color(tokens.popup_text())
+                .child(SharedString::from(if recents {
+                    t("commandPalette.recents")
+                } else {
+                    (*title).to_owned()
+                }));
+            if recents {
+                heading = heading.child(
+                    div()
+                        .ml(px(p::RECENTS_ICON_GAP))
+                        .flex()
+                        .items_center()
+                        .child(crate::icons::icon(
+                            "historyCommandIcon",
+                            p::CATEGORY_FONT,
+                            tokens.popup_text(),
+                        )),
+                );
+            }
+
+            let mut rows = div().flex().flex_col();
+            for command in items {
+                let selected = index == self.palette_index;
+                // Commands upstream ships without a local handler keep their
+                // row, greyed out and inert, the way upstream styles
+                // `command-palette-item-disabled`.
+                let implemented = command.implemented();
+                let mut row = div()
+                    .id(SharedString::from(format!("palette-row-{index}")))
                     .test_support()
                     .flex()
                     .flex_row()
                     .items_center()
-                    .gap(px(8.0))
-                    .px(px(8.0))
-                    .py(px(8.0))
-                    .text_size(px(15.0))
-                    .text_color(query_color)
-                    .child(crate::icons::icon(
-                        "searchIcon",
-                        size::ICON,
-                        tokens.shortcut_text(),
-                    ))
-                    .child(div().flex_1().child(SharedString::from(query_text)))
-                    .child(chrome::kbd_chip("Esc", tokens)),
-            );
-
-        if results.is_empty() {
-            panel = panel.child(
-                div()
-                    .px(px(8.0))
-                    .py(px(12.0))
-                    .text_size(px(14.0))
-                    .text_color(tokens.shortcut_text())
-                    .child(SharedString::from(t("palette.noResults"))),
-            );
-        } else {
-            let mut list = div().flex().flex_col().gap(px(2.0)).overflow_hidden();
-            for (i, (_id, label, shortcut, icon_name)) in results.iter().enumerate() {
-                let selected = i == self.palette_index;
-                let row = chrome::menu_row_with(
-                    format!("palette-row-{i}"),
-                    Some(icon_name),
-                    &t(label),
-                    *shortcut,
-                    false,
-                    tokens,
-                );
-                let row = if selected {
-                    row.bg(tokens.selected_bg())
-                        .text_color(tokens.selected_fg())
+                    .justify_between()
+                    .h(px(p::ITEM_HEIGHT))
+                    .px(px(p::ITEM_PAD_X))
+                    .rounded(px(p::ITEM_RADIUS))
+                    .text_color(tokens.popup_text())
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap(px(p::ITEM_NAME_GAP))
+                            .overflow_hidden()
+                            .child(crate::icons::icon(
+                                command.icon,
+                                p::ITEM_ICON,
+                                tokens.popup_text(),
+                            ))
+                            .child(div().truncate().child(SharedString::from(t(command.label)))),
+                    );
+                if let Some(shortcut) = command.shortcut {
+                    row = row.child(shortcut_keys(shortcut));
+                }
+                if !implemented {
+                    row = row.opacity(p::DISABLED_OPACITY).cursor_not_allowed();
                 } else {
-                    row
-                };
-                list = list.child(row.on_click(Self::act(cx, move |this, _, _, _| {
-                    this.palette_index = i;
-                    this.run_palette_selection();
-                })));
+                    row = row.cursor_pointer();
+                    if selected {
+                        row = row.bg(tokens.surface_mid());
+                    } else {
+                        row = row.hover(move |style| style.bg(tokens.surface_mid()));
+                    }
+                }
+                let clicked = index;
+                rows = rows.child(if implemented {
+                    row.on_click(Self::act(cx, move |this, _, _, _| {
+                        this.palette_index = clicked;
+                        this.run_palette_selection();
+                    }))
+                } else {
+                    // Upstream's disabled item still binds a no-op handler, so
+                    // the click is swallowed instead of closing the dialog.
+                    row.on_click(|_, _, _| {})
+                });
+                index += 1;
             }
-            panel = panel.child(list);
+
+            sections_ui.push(
+                div()
+                    .id(SharedString::from(format!("palette-section-{title}")))
+                    .test_support()
+                    .flex()
+                    .flex_col()
+                    .pr(px(p::CATEGORY_MARGIN_RIGHT))
+                    .py(px(p::CATEGORY_PAD_Y))
+                    .child(heading)
+                    .child(rows)
+                    .into_any_element(),
+            );
         }
+
+        let content: gpui_kit::AnyElement = if sections_ui.is_empty() {
+            div()
+                .id("palette-empty")
+                .test_support()
+                .flex()
+                .flex_col()
+                .items_center()
+                .gap(px(p::ITEM_NAME_GAP))
+                .mt(px(p::NO_MATCH_MARGIN_TOP))
+                .text_size(px(p::FIELD_FONT))
+                .text_color(tokens.popup_text())
+                .child(crate::icons::icon(
+                    "searchIcon",
+                    p::ITEM_ICON,
+                    tokens.popup_text(),
+                ))
+                .child(SharedString::from(t("commandPalette.search.noMatch")))
+                .into_any_element()
+        } else {
+            let mut list = div()
+                .id("palette-commands")
+                .test_support()
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_h(px(0.0))
+                .mt(px(p::COMMANDS_MARGIN_TOP))
+                .overflow_y_scroll();
+            for section in sections_ui {
+                list = list.child(section);
+            }
+            list.into_any_element()
+        };
+
+        let panel = div()
+            .id("palette-panel")
+            .test_support()
+            .flex()
+            .flex_col()
+            .w(px(p::WIDTH))
+            .max_w_full()
+            .h(px(height))
+            .p(px(p::ISLAND_PADDING))
+            .bg(tokens.island())
+            .border_1()
+            .border_color(tokens.dialog_border())
+            .rounded(px(p::RADIUS))
+            .shadow(crate::design::modal_shadow())
+            .occlude()
+            .child(field)
+            .child(hints)
+            .child(content);
 
         div()
             .absolute()
@@ -6626,15 +7481,28 @@ impl Editor {
             .child(
                 div()
                     .id("palette-backdrop")
+                    .test_support()
                     .absolute()
                     .top(px(0.0))
                     .left(px(0.0))
                     .size_full()
                     .occlude()
-                    .bg(hsla(0.0, 0.0, 0.0, 0.18))
+                    .bg(tokens.overlay_backdrop())
                     .on_click(Self::act(cx, |this, _, _, _| this.show_palette = false)),
             )
-            .child(panel)
+            .child(
+                div()
+                    .absolute()
+                    .top(px(0.0))
+                    .left(px(0.0))
+                    .size_full()
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .justify_center()
+                    .p(px(p::MODAL_PADDING))
+                    .child(panel),
+            )
             .into_any_element()
     }
 

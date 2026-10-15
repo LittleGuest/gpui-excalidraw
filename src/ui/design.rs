@@ -183,6 +183,45 @@ impl Tokens {
         rgb(self.primary_hover)
     }
 
+    /// Upstream `--color-brand-active`, used as the focused border of the
+    /// command-palette search field.
+    pub fn brand_active(&self) -> Rgba {
+        match self.palette {
+            Palette::Light => rgb(0x4440bf),
+            Palette::Dark => rgb(0xd0ccff),
+        }
+    }
+
+    /// Upstream `--ExcTextField--border`: gray-20 in light, the outline variant
+    /// in dark.
+    pub fn field_border(&self) -> Rgba {
+        match self.palette {
+            Palette::Light => rgb(0xebebeb),
+            Palette::Dark => rgb(0x46464f),
+        }
+    }
+
+    /// Upstream `--ExcTextField--placeholder` (`--color-border-outline-variant`).
+    pub fn field_placeholder(&self) -> Rgba {
+        match self.palette {
+            Palette::Light => rgb(0xc5c5d0),
+            Palette::Dark => rgb(0x46464f),
+        }
+    }
+
+    /// Upstream `--popup-text-color`, which seeds the command palette's text.
+    pub fn popup_text(&self) -> Rgba {
+        match self.palette {
+            Palette::Light => rgb(0x000000),
+            Palette::Dark => rgb(0xced4da),
+        }
+    }
+
+    /// Upstream `--color-gray-50`, the shortcut hint description colour.
+    pub fn hint_desc(&self) -> Rgba {
+        rgb(0x999999)
+    }
+
     pub fn dialog_border(&self) -> Rgba {
         match self.palette {
             Palette::Light => rgb(0xebebeb),
@@ -604,6 +643,59 @@ pub mod size {
         pub const KEY_PAD: f32 = 8.0;
         pub const KEY_RADIUS: f32 = 6.0;
         pub const KEY_GAP: f32 = 4.0;
+    }
+
+    // Upstream CommandPalette: a 720px dialog with a 1.5rem island, a 3rem
+    // search field that focuses to the brand-active border, a centred row of
+    // shortcut hints, and 2.5rem-tall command rows grouped by category.
+    pub mod command_palette {
+        pub const WIDTH: f32 = 720.0;
+
+        pub const MODAL_PADDING: f32 = 40.0;
+        pub const ISLAND_PADDING: f32 = 24.0;
+
+        pub const MAX_HEIGHT: f32 = 750.0;
+
+        pub const RADIUS: f32 = 12.0;
+
+        pub const FIELD_HEIGHT: f32 = 48.0;
+        pub const FIELD_RADIUS: f32 = 8.0;
+        pub const FIELD_PAD_X: f32 = 12.0;
+        pub const FIELD_FONT: f32 = 16.0;
+
+        pub const HINTS_MARGIN_TOP: f32 = 12.0;
+        pub const HINTS_GAP: f32 = 24.0;
+
+        pub const HINT_HEIGHT: f32 = 16.0;
+        pub const HINT_FONT: f32 = 10.0;
+        pub const HINT_GAP: f32 = 4.0;
+        pub const HINT_KEY_PAD_X: f32 = 4.0;
+        pub const HINT_KEY_RADIUS: f32 = 4.0;
+        pub const HINT_DESC_MARGIN: f32 = 4.0;
+
+        pub const COMMANDS_MARGIN_TOP: f32 = 12.0;
+
+        pub const CATEGORY_FONT: f32 = 16.0;
+        pub const CATEGORY_MARGIN_BOTTOM: f32 = 6.0;
+        pub const CATEGORY_PAD_Y: f32 = 12.0;
+        pub const CATEGORY_MARGIN_RIGHT: f32 = 4.0;
+        pub const RECENTS_ICON_GAP: f32 = 6.0;
+
+        pub const ITEM_HEIGHT: f32 = 40.0;
+        pub const ITEM_PAD_X: f32 = 8.0;
+        pub const ITEM_RADIUS: f32 = 8.0;
+        pub const ITEM_ICON: f32 = 16.0;
+        pub const ITEM_ICON_MARGIN: f32 = 6.0;
+        pub const ITEM_NAME_GAP: f32 = 4.0;
+
+        pub const KEY_HEIGHT: f32 = 16.0;
+        pub const KEY_FONT: f32 = 10.0;
+        pub const KEY_PAD_X: f32 = 4.0;
+        pub const KEY_RADIUS: f32 = 4.0;
+        pub const KEY_GAP: f32 = 4.0;
+
+        pub const NO_MATCH_MARGIN_TOP: f32 = 36.0;
+        pub const DISABLED_OPACITY: f32 = 0.3;
     }
 }
 

@@ -257,6 +257,16 @@ pub fn translations() -> HashMap<&'static str, HashMap<&'static str, &'static st
             map.extend(strings);
         }
     }
+    for (code, strings) in palette_strings() {
+        if let Some(map) = all.get_mut(code) {
+            map.extend(strings);
+        }
+    }
+    for (code, strings) in palette_extra_strings() {
+        if let Some(map) = all.get_mut(code) {
+            map.extend(strings);
+        }
+    }
     all
 }
 
@@ -1104,8 +1114,6 @@ fn en() -> HashMap<&'static str, &'static str> {
     m.insert("menu.commandPalette", "Command palette");
     m.insert("menu.findOnCanvas", "Find on canvas");
     m.insert("action.zoomToFit", "Zoom to fit");
-    m.insert("palette.placeholder", "Type a command…");
-    m.insert("palette.noResults", "No results found");
     m.insert("find.placeholder", "Find text on canvas");
     m.insert("find.noResults", "No results");
     m.insert("help.tools", "Tools");
@@ -1322,8 +1330,6 @@ fn zh_cn() -> HashMap<&'static str, &'static str> {
     m.insert("menu.commandPalette", "命令面板");
     m.insert("menu.findOnCanvas", "在画布上查找");
     m.insert("action.zoomToFit", "缩放至适应");
-    m.insert("palette.placeholder", "输入命令…");
-    m.insert("palette.noResults", "未找到结果");
     m.insert("find.placeholder", "在画布上查找文本");
     m.insert("find.noResults", "无结果");
     m.insert("help.tools", "工具");
@@ -1459,8 +1465,6 @@ fn zh_tw() -> HashMap<&'static str, &'static str> {
     m.insert("action.resetZoom", "重設縮放");
     m.insert("action.toggleGrid", "切換網格");
     m.insert("action.zoomToFit", "縮放至適應");
-    m.insert("palette.placeholder", "輸入指令…");
-    m.insert("palette.noResults", "找不到結果");
     m.insert("find.placeholder", "在畫布上尋找文字");
     m.insert("find.noResults", "沒有結果");
     m.insert("help.tools", "工具");
@@ -1591,8 +1595,6 @@ fn ja() -> HashMap<&'static str, &'static str> {
     m.insert("action.resetZoom", "ズームをリセット");
     m.insert("action.toggleGrid", "グリッドの表示切替");
     m.insert("action.zoomToFit", "全体を表示");
-    m.insert("palette.placeholder", "コマンドを入力…");
-    m.insert("palette.noResults", "結果が見つかりません");
     m.insert("find.placeholder", "キャンバス内のテキストを検索");
     m.insert("find.noResults", "結果なし");
     m.insert("help.tools", "ツール");
@@ -1747,8 +1749,6 @@ fn ko() -> HashMap<&'static str, &'static str> {
     m.insert("action.resetZoom", "확대/축소 초기화");
     m.insert("action.toggleGrid", "격자 전환");
     m.insert("action.zoomToFit", "화면에 맞추기");
-    m.insert("palette.placeholder", "명령을 입력하세요…");
-    m.insert("palette.noResults", "결과를 찾을 수 없습니다");
     m.insert("find.placeholder", "캔버스에서 텍스트 찾기");
     m.insert("find.noResults", "결과 없음");
     m.insert("help.tools", "도구");
@@ -1898,8 +1898,6 @@ fn de() -> HashMap<&'static str, &'static str> {
     m.insert("action.resetZoom", "Zoom zurücksetzen");
     m.insert("action.toggleGrid", "Raster umschalten");
     m.insert("action.zoomToFit", "An Größe anpassen");
-    m.insert("palette.placeholder", "Befehl eingeben…");
-    m.insert("palette.noResults", "Keine Ergebnisse gefunden");
     m.insert("find.placeholder", "Text auf der Leinwand suchen");
     m.insert("find.noResults", "Keine Ergebnisse");
     m.insert("help.tools", "Werkzeuge");
@@ -2060,8 +2058,6 @@ fn fr() -> HashMap<&'static str, &'static str> {
     m.insert("action.resetZoom", "Réinitialiser le zoom");
     m.insert("action.toggleGrid", "Afficher/masquer la grille");
     m.insert("action.zoomToFit", "Ajuster à l'écran");
-    m.insert("palette.placeholder", "Saisir une commande…");
-    m.insert("palette.noResults", "Aucun résultat");
     m.insert("find.placeholder", "Rechercher du texte sur le canevas");
     m.insert("find.noResults", "Aucun résultat");
     m.insert("help.tools", "Outils");
@@ -2225,8 +2221,6 @@ fn es() -> HashMap<&'static str, &'static str> {
     m.insert("action.resetZoom", "Restablecer zoom");
     m.insert("action.toggleGrid", "Alternar cuadrícula");
     m.insert("action.zoomToFit", "Ajustar a la pantalla");
-    m.insert("palette.placeholder", "Escribe un comando…");
-    m.insert("palette.noResults", "No se encontraron resultados");
     m.insert("find.placeholder", "Buscar texto en el lienzo");
     m.insert("find.noResults", "Sin resultados");
     m.insert("help.tools", "Herramientas");
@@ -2387,8 +2381,6 @@ fn it() -> HashMap<&'static str, &'static str> {
     m.insert("action.resetZoom", "Reimposta zoom");
     m.insert("action.toggleGrid", "Attiva/disattiva griglia");
     m.insert("action.zoomToFit", "Adatta allo schermo");
-    m.insert("palette.placeholder", "Digita un comando…");
-    m.insert("palette.noResults", "Nessun risultato trovato");
     m.insert("find.placeholder", "Cerca testo sulla tela");
     m.insert("find.noResults", "Nessun risultato");
     m.insert("help.tools", "Strumenti");
@@ -2555,8 +2547,6 @@ fn pt_br() -> HashMap<&'static str, &'static str> {
     m.insert("action.resetZoom", "Redefinir zoom");
     m.insert("action.toggleGrid", "Alternar grade");
     m.insert("action.zoomToFit", "Ajustar à tela");
-    m.insert("palette.placeholder", "Digite um comando…");
-    m.insert("palette.noResults", "Nenhum resultado encontrado");
     m.insert("find.placeholder", "Procurar texto na tela");
     m.insert("find.noResults", "Sem resultados");
     m.insert("help.tools", "Ferramentas");
@@ -2714,8 +2704,6 @@ fn ru() -> HashMap<&'static str, &'static str> {
     m.insert("action.resetZoom", "Сбросить масштаб");
     m.insert("action.toggleGrid", "Переключить сетку");
     m.insert("action.zoomToFit", "По размеру экрана");
-    m.insert("palette.placeholder", "Введите команду…");
-    m.insert("palette.noResults", "Ничего не найдено");
     m.insert("find.placeholder", "Искать текст на холсте");
     m.insert("find.noResults", "Нет результатов");
     m.insert("help.tools", "Инструменты");
@@ -2934,11 +2922,6 @@ fn ar_sa() -> HashMap<&'static str, &'static str> {
     m.insert("menu.commandPalette", "لوحة الأوامر");
     m.insert("menu.findOnCanvas", "البحث على اللوحة");
     m.insert("action.zoomToFit", "تكبير لتلائم جميع العناصر");
-    m.insert(
-        "palette.placeholder",
-        "ابحث في القوائم، الأوامر، واكتشف الجواهر المخفية",
-    );
-    m.insert("palette.noResults", "لا توجد أوامر مطابقة...");
     m.insert("find.placeholder", "ابحث عن نص على اللوحة...");
     m.insert("find.noResults", "لم يتم العثور على تطابقات...");
     m.insert("help.tools", "الأدوات");
@@ -3139,11 +3122,6 @@ fn eu_es() -> HashMap<&'static str, &'static str> {
     m.insert("menu.commandPalette", "Komandoen paleta");
     m.insert("menu.findOnCanvas", "Bilatu oihalean");
     m.insert("action.zoomToFit", "Egin zoom elementu guztiak ikusteko");
-    m.insert(
-        "palette.placeholder",
-        "Bilatu menuak, komandoak, eta aurkitu ezkutuko harribitxiak",
-    );
-    m.insert("palette.noResults", "Ez da komandorik aurkitu...");
     m.insert("find.placeholder", "Bilatu testua oihalean...");
     m.insert("find.noResults", "Ez da ezer aurkitu...");
     m.insert("help.tools", "Tresnak");
@@ -3362,11 +3340,6 @@ fn fa_ir() -> HashMap<&'static str, &'static str> {
     m.insert("menu.commandPalette", "تخته فرمان‌ها");
     m.insert("menu.findOnCanvas", "جستجو در بوم");
     m.insert("action.zoomToFit", "بزرگنمایی برای دیدن تمام آیتم ها");
-    m.insert(
-        "palette.placeholder",
-        "در فهرست‌ها و دستورها را جستجو کنید هم سنگهای پنهان را کشف کنید",
-    );
-    m.insert("palette.noResults", "دستوری یافت نشد...");
     m.insert("find.placeholder", "جستجوی متن در بوم...");
     m.insert("find.noResults", "هیچ موردی یافت نشد...");
     m.insert("help.tools", "ابزار");
@@ -3585,11 +3558,6 @@ fn he_il() -> HashMap<&'static str, &'static str> {
     m.insert("menu.commandPalette", "לוח פקודות");
     m.insert("menu.findOnCanvas", "איתור בלוח הציור");
     m.insert("action.zoomToFit", "שינוי מרחק התצוגה כך שיוצגו כל הרכיבים");
-    m.insert(
-        "palette.placeholder",
-        "תפריטי חיפוש, פקודות ואבני חן נעלמות",
-    );
-    m.insert("palette.noResults", "אין פקודות תואמות…");
     m.insert("find.placeholder", "איתור טקסט בלוח הציור…");
     m.insert("find.noResults", "לא נמצאו תוצאות…");
     m.insert("help.tools", "כלים");
@@ -3799,11 +3767,6 @@ fn id_id() -> HashMap<&'static str, &'static str> {
     m.insert("menu.commandPalette", "Daftar Perintah");
     m.insert("menu.findOnCanvas", "Temukan di kanvas");
     m.insert("action.zoomToFit", "Memperbesar agar unsur pas semua");
-    m.insert(
-        "palette.placeholder",
-        "Cari menu, perintah dan temukan hidden gems",
-    );
-    m.insert("palette.noResults", "Tidak ada perintah yang sesuai...");
     m.insert("find.placeholder", "Temukan teks di kanvas...");
     m.insert("find.noResults", "Tidak ada kecocokan yang ditemukan...");
     m.insert("help.tools", "Alat");
@@ -4016,11 +3979,6 @@ fn nl_nl() -> HashMap<&'static str, &'static str> {
     m.insert("menu.commandPalette", "Opdrachtenpalet");
     m.insert("menu.findOnCanvas", "Zoek op canvas");
     m.insert("action.zoomToFit", "Zoom om alle element te laten passen");
-    m.insert(
-        "palette.placeholder",
-        "Zoek in menu's, commando's en ontdek geheimpjes",
-    );
-    m.insert("palette.noResults", "Geen overeenkomende opdrachten...");
     m.insert("find.placeholder", "Zoek text op canvas...");
     m.insert("find.noResults", "Geen overeenkomsten gevonden...");
     m.insert("help.tools", "Tools");
@@ -4236,11 +4194,6 @@ fn pl_pl() -> HashMap<&'static str, &'static str> {
     m.insert("menu.commandPalette", "Paleta poleceń");
     m.insert("menu.findOnCanvas", "Znajdź na płótnie");
     m.insert("action.zoomToFit", "Dopasuj widok do całej zawartości");
-    m.insert(
-        "palette.placeholder",
-        "Szukaj w menu, poleceniach i odkrywaj ukryte funkcje",
-    );
-    m.insert("palette.noResults", "Brak pasujących komend...");
     m.insert("find.placeholder", "Znajdź tekst na płótnie...");
     m.insert("find.noResults", "Nie znaleziono pasujących elementów...");
     m.insert("help.tools", "Narzędzia");
@@ -4462,11 +4415,6 @@ fn pt_pt() -> HashMap<&'static str, &'static str> {
         "action.zoomToFit",
         "Aproximar para enquadrar todos os elementos",
     );
-    m.insert(
-        "palette.placeholder",
-        "Procure menus, comandos e descubra pedras preciosas ocultas",
-    );
-    m.insert("palette.noResults", "Nenhum comando correspondente...");
     m.insert("find.placeholder", "Pesquisar texto na área de desenho...");
     m.insert("find.noResults", "Não foram encontrados resultados...");
     m.insert("help.tools", "Ferramentas");
@@ -4691,11 +4639,6 @@ fn ro_ro() -> HashMap<&'static str, &'static str> {
         "action.zoomToFit",
         "Transfocare pentru a cuprinde toate elementele",
     );
-    m.insert(
-        "palette.placeholder",
-        "Caută meniuri, comenzi și descoperă nestemate ascunse",
-    );
-    m.insert("palette.noResults", "Nicio comandă potrivită...");
     m.insert("find.placeholder", "Găsire text pe pânză...");
     m.insert("find.noResults", "Nicio potrivire găsită...");
     m.insert("help.tools", "Instrumente");
@@ -4914,11 +4857,6 @@ fn sk_sk() -> HashMap<&'static str, &'static str> {
         "action.zoomToFit",
         "Priblížiť aby boli zahrnuté všetky prvky",
     );
-    m.insert(
-        "palette.placeholder",
-        "Prehľadávajte menu, príkazy a objavte skryté poklady",
-    );
-    m.insert("palette.noResults", "Žiadne vyhovujúce príkazy...");
     m.insert("find.placeholder", "Vyhľadať text v plátne...");
     m.insert("find.noResults", "Neboli nájdené žiadne výsledky...");
     m.insert("help.tools", "Nástroje");
@@ -5134,11 +5072,6 @@ fn sl_si() -> HashMap<&'static str, &'static str> {
     m.insert("menu.commandPalette", "Paleta ukazov");
     m.insert("menu.findOnCanvas", "Poišči na platnu");
     m.insert("action.zoomToFit", "Približaj na vse elemente");
-    m.insert(
-        "palette.placeholder",
-        "Išči po menijih, ukazih in odkrij skrite funkcije",
-    );
-    m.insert("palette.noResults", "Ni ustreznih ukazov ...");
     m.insert("find.placeholder", "Poišči besedilo na platnu ...");
     m.insert("find.noResults", "Ni zadetkov ...");
     m.insert("help.tools", "Orodja");
@@ -5351,11 +5284,6 @@ fn sv_se() -> HashMap<&'static str, &'static str> {
     m.insert("menu.commandPalette", "Kommandopalett");
     m.insert("menu.findOnCanvas", "Hitta på canvas");
     m.insert("action.zoomToFit", "Zooma för att rymma alla element");
-    m.insert(
-        "palette.placeholder",
-        "Sök menyer, kommandon och upptäck dolda pärlor",
-    );
-    m.insert("palette.noResults", "Inga matchande kommandon...");
     m.insert("find.placeholder", "Hitta text på canvas...");
     m.insert("find.noResults", "Inga träffar hittades...");
     m.insert("help.tools", "Verktyg");
@@ -5574,11 +5502,6 @@ fn tr_tr() -> HashMap<&'static str, &'static str> {
         "action.zoomToFit",
         "Tüm öğeleri sığdırmak için yakınlaştırın",
     );
-    m.insert(
-        "palette.placeholder",
-        "Menülerde, komutlarda arama yapın ve saklı kalmış hazineleri keşfedin",
-    );
-    m.insert("palette.noResults", "Eşleşen komut yok...");
     m.insert("find.placeholder", "Tuvalde metin bul...");
     m.insert("find.noResults", "Sonuç bulunamadı...");
     m.insert("help.tools", "Araçlar");
@@ -5794,11 +5717,6 @@ fn uk_ua() -> HashMap<&'static str, &'static str> {
     m.insert("menu.commandPalette", "Командна палітра");
     m.insert("menu.findOnCanvas", "Знайти на полотні");
     m.insert("action.zoomToFit", "Збільшити, щоб умістити всі елементи");
-    m.insert(
-        "palette.placeholder",
-        "Шукайте меню, команди та відкривайте приховані перлини",
-    );
-    m.insert("palette.noResults", "Немає відповідних команд...");
     m.insert("find.placeholder", "Знайти текст на полотні...");
     m.insert("find.noResults", "Збігів не знайдено...");
     m.insert("help.tools", "Інструменти");
@@ -8443,6 +8361,1232 @@ fn help_dialog_strings() -> HashMap<&'static str, HashMap<&'static str, &'static
             (
                 *code,
                 HELP_DIALOG_KEYS
+                    .iter()
+                    .copied()
+                    .zip(values.iter().copied())
+                    .collect(),
+            )
+        })
+        .collect()
+}
+
+/// Command-palette strings pulled verbatim from upstream Excalidraw locales,
+/// keyed with upstream's own key names so the two palettes stay textually identical.
+const PALETTE_I18N_KEYS: [&str; 32] = [
+    "commandPalette.search.placeholder",
+    "commandPalette.search.noMatch",
+    "commandPalette.shortcuts.select",
+    "commandPalette.shortcuts.confirm",
+    "commandPalette.shortcuts.close",
+    "commandPalette.recents",
+    "commandPalette.itemNotAvailable",
+    "buttons.exportImage",
+    "exportDialog.disk_title",
+    "labels.copyAsSvg",
+    "toolBar.library",
+    "labels.liveCollaboration",
+    "labels.share",
+    "labels.textToDiagram",
+    "toolBar.mermaidToExcalidraw",
+    "labels.canvasBackground",
+    "labels.changeStroke",
+    "labels.changeBackground",
+    "labels.shapeSwitch",
+    "labels.zoomToFit",
+    "labels.zoomToFitSelection",
+    "labels.zoomToFitViewport",
+    "labels.showHints",
+    "labels.wrapSelectionInFrame",
+    "labels.centerVertically",
+    "labels.centerHorizontally",
+    "labels.imageCropping",
+    "labels.copyElementLink",
+    "labels.linkToElement",
+    "labels.elementLock.lock",
+    "labels.elementLock.unlockAll",
+    "labels.lineEditor.edit",
+];
+
+static PALETTE_I18N: [(&str, [&str; 32]); 25] = [
+    (
+        "en",
+        [
+            "Search menus, commands, and discover hidden gems",
+            "No matching commands...",
+            "Select",
+            "Confirm",
+            "Close",
+            "Recently used",
+            "Command is not available...",
+            "Export image...",
+            "Save to disk",
+            "Copy to clipboard as SVG",
+            "Library",
+            "Live collaboration...",
+            "Share",
+            "Text to diagram",
+            "Mermaid to Excalidraw",
+            "Canvas background",
+            "Change stroke color",
+            "Change background color",
+            "Switch shape",
+            "Zoom to fit all elements",
+            "Zoom to fit selection",
+            "Zoom to fit in viewport",
+            "Show hints",
+            "Wrap selection in frame",
+            "Center vertically",
+            "Center horizontally",
+            "Image cropping",
+            "Copy link to object",
+            "Link to object",
+            "Lock",
+            "Unlock all",
+            "Edit line",
+        ],
+    ),
+    (
+        "id-ID",
+        [
+            "Cari menu, perintah dan temukan hidden gems",
+            "Tidak ada perintah yang sesuai...",
+            "Pilih",
+            "Konfirmasi",
+            "Keluar",
+            "Baru digunakan",
+            "Perintah tidak tersedia...",
+            "Ekspor gambar...",
+            "Simpan ke disk",
+            "Salin ke papan klip sebagai SVG",
+            "Pustaka",
+            "Kolaborasi langsung...",
+            "Bagikan",
+            "Teks menjadi diagram",
+            "Mermaid menjadi Excalidraw",
+            "Latar Kanvas",
+            "Ubah warna garis",
+            "Ubah warna latar",
+            "Keputusan",
+            "Memperbesar agar unsur pas semua",
+            "Memperbesar agar sesuai dengan pilihan",
+            "Perbesar agar sesuai dengan viewport",
+            "Show hints",
+            "Bungkus pilihan dalam bingkai",
+            "Pusatkan secara vertikal",
+            "Pusatkan secara horizontal",
+            "Pemangkasan gambar",
+            "Salin tautan ke objek",
+            "Taut ke objek",
+            "Kuncikan",
+            "Lepas semua",
+            "Edit tautan",
+        ],
+    ),
+    (
+        "de-DE",
+        [
+            "Suche in Menüs und Befehlen, entdecke versteckte Funktionen",
+            "Keine passenden Befehle...",
+            "Auswählen",
+            "Bestätigen",
+            "Schließen",
+            "Zuletzt verwendet",
+            "Befehl ist nicht verfügbar...",
+            "Bild exportieren...",
+            "Auf Festplatte speichern",
+            "In Zwischenablage kopieren (SVG)",
+            "Bibliothek",
+            "Live-Zusammenarbeit...",
+            "Teilen",
+            "Text zu Diagramm",
+            "Mermaid zu Excalidraw",
+            "Zeichenflächenhintergrund",
+            "Strichfarbe ändern",
+            "Hintergrundfarbe ändern",
+            "Form wechseln",
+            "Zoom auf alle Elemente anpassen",
+            "Zoom auf Auswahl anpassen",
+            "Zoom auf Ansicht anpassen",
+            "Show hints",
+            "Auswahl in Rahmen einbetten",
+            "Vertikal zentrieren",
+            "Horizontal zentrieren",
+            "Bild zuschneiden",
+            "Link zum Objekt kopieren",
+            "Link zum Objekt",
+            "Sperren",
+            "Alle entsperren",
+            "Linie bearbeiten",
+        ],
+    ),
+    (
+        "es-ES",
+        [
+            "Busca menús, comandos y descubre gemas ocultas",
+            "No hay comandos coincidentes...",
+            "Seleccionar",
+            "Confirmar",
+            "Cerrar",
+            "Usado recientemente",
+            "Comando no disponible...",
+            "Exportar imagen...",
+            "Guardar en disco",
+            "Copiar al portapapeles como SVG",
+            "Biblioteca",
+            "Colaboración en directo...",
+            "Compartir",
+            "Texto a diagrama",
+            "Mermaid a Excalidraw",
+            "Fondo del lienzo",
+            "Cambiar el color del trazo",
+            "Cambiar el color de fondo",
+            "Cambiar forma",
+            "Zoom para mostrar todos los elementos",
+            "Zoom para ajustar la selección",
+            "Zoom para encajar en la ventana",
+            "Show hints",
+            "Ajustar la selección en el marco",
+            "Centrar verticalmente",
+            "Centrar horizontalmente",
+            "Recortar imagen",
+            "Copiar enlace al objeto",
+            "Enlace al objeto",
+            "Bloquear",
+            "Desbloquear todo",
+            "Editar línea",
+        ],
+    ),
+    (
+        "eu-ES",
+        [
+            "Bilatu menuak, komandoak, eta aurkitu ezkutuko harribitxiak",
+            "Ez da komandorik aurkitu...",
+            "Hautatu",
+            "Berretsi",
+            "Itxi",
+            "Orain dela gutxi erabilia",
+            "Komandoak ez daude erabilgarri...",
+            "Esportatu irudia...",
+            "Gorde diskoan",
+            "Kopiatu arbelera SVG gisa",
+            "Liburutegia",
+            "Zuzeneko elkarlana...",
+            "Partekatu",
+            "Testutik diagramara",
+            "Mermaid-etik Excalidraw-ra",
+            "Oihalaren atzeko planoa",
+            "Marraren kolorea aldatu",
+            "Atzealdeko kolorea aldatu",
+            "Aldatu forma",
+            "Egin zoom elementu guztiak ikusteko",
+            "Zoom hautapenera",
+            "Zoom ikuspegira",
+            "Show hints",
+            "Bildu hautapena marko batean",
+            "Erdiratu bertikalki",
+            "Erdiratu horizontalki",
+            "Irudia moztea",
+            "Kopiatu esteka objektura",
+            "Estekatu objektura",
+            "Blokeatu",
+            "Desblokeatu guztiak",
+            "Editatu lerroa",
+        ],
+    ),
+    (
+        "fr-FR",
+        [
+            "Recherchez dans les menus, les commandes et découvrez des gemmes cachées",
+            "Aucune commande correspondante...",
+            "Sélectionner",
+            "Confirmer",
+            "Fermer",
+            "Récemment utilisé",
+            "Commande non disponible...",
+            "Exporter l'image...",
+            "Enregistrer sur le disque",
+            "Copier dans le presse-papier en SVG",
+            "Bibliothèque",
+            "Collaboration en direct...",
+            "Partager",
+            "Texte vers diagramme",
+            "De Mermaid à Excalidraw",
+            "Arrière-plan du canevas",
+            "Changer la couleur du trait",
+            "Changer la couleur d'arrière-plan",
+            "Changer de forme",
+            "Zoomer pour voir tous les éléments",
+            "Zoomer pour s'adapter à la sélection",
+            "Zoomer pour tenir dans la fenêtre d'affichage",
+            "Show hints",
+            "Mettre la sélection dans un cadre",
+            "Centrer verticalement",
+            "Centrer horizontalement",
+            "Recadrage de l'image",
+            "Copier le lien vers un objet",
+            "Lien vers un objet",
+            "Verrouiller",
+            "Tout déverrouiller",
+            "Modifier la ligne",
+        ],
+    ),
+    (
+        "it-IT",
+        [
+            "Cerca menu, comandi e scopri gemme nascoste",
+            "Nessun comando corrisponde...",
+            "Selezione",
+            "Conferma",
+            "Chiudi",
+            "Usate di recente",
+            "Il comando non è disponibile...",
+            "Esporta immagine...",
+            "Salva su disco",
+            "Copia negli appunti come SVG",
+            "Libreria",
+            "Collaborazione dal vivo...",
+            "Condividi",
+            "Testo a diagramma",
+            "Da Mermaid a Excalidraw",
+            "Sfondo tela",
+            "Cambia il colore del tratto",
+            "Cambia il colore dello sfondo",
+            "Cambia forma",
+            "Zoom per adattare tutti gli elementi",
+            "Ingrandisci per adattare la selezione",
+            "Ingrandisci per adattarsi alla vista",
+            "Show hints",
+            "Avvolgi la selezione nella cornice",
+            "Centra Verticalmente",
+            "Centra orizzontalmente",
+            "Ritaglio immagine",
+            "Copia il link all'oggetto",
+            "Link all'oggetto",
+            "Blocca",
+            "Sblocca tutto",
+            "Modifica linea",
+        ],
+    ),
+    (
+        "nl-NL",
+        [
+            "Zoek in menu's, commando's en ontdek geheimpjes",
+            "Geen overeenkomende opdrachten...",
+            "Selecteer",
+            "Bevestigen",
+            "Sluiten",
+            "Laatst gebruikt",
+            "Opdracht is niet beschikbaar...",
+            "Exporteer afbeelding...",
+            "Opslaan op schijf",
+            "Kopieer naar klembord als SVG",
+            "Bibliotheek",
+            "Live Samenwerking...",
+            "Deel",
+            "Tekst naar diagram",
+            "Mermaid naar Excalidraw",
+            "Canvas achtergrond",
+            "Verander lijn kleur",
+            "Verander achtergrond kleur",
+            "Verander vorm",
+            "Zoom om alle element te laten passen",
+            "Zoom om in selectie te laten passen",
+            "Zoom om in het venster te laten passen",
+            "Show hints",
+            "Selectie omslaan in frame",
+            "Verticaal Centreren",
+            "Horizontaal Centreren",
+            "Afbeelding bijsnijden",
+            "Kopieer link naar object",
+            "Link naar object",
+            "Vergrendel",
+            "Ontgrendel alles",
+            "Bewerk regel",
+        ],
+    ),
+    (
+        "pl-PL",
+        [
+            "Szukaj w menu, poleceniach i odkrywaj ukryte funkcje",
+            "Brak pasujących komend...",
+            "Wybierz",
+            "Potwierdź",
+            "Zamknij",
+            "Ostatnio używane",
+            "Polecenie jest niedostępne...",
+            "Eksportuj obraz...",
+            "Zapisz na dysku",
+            "Kopiuj do schowka jako plik SVG",
+            "Biblioteka",
+            "Współpraca w czasie rzeczywistym...",
+            "Udostępnij",
+            "Generuj diagram z opisu",
+            "Konwertuj diagram Mermaid do Excalidraw",
+            "Kolor dokumentu",
+            "Zmień kolor kreski",
+            "Zmień kolor tła",
+            "Wybór kształtu",
+            "Dopasuj widok do całej zawartości",
+            "Dopasuj widok do zaznaczenia",
+            "Dopasuj widok do ekranu",
+            "Show hints",
+            "Owiń wybór w ramkę",
+            "Wyśrodkuj w pionie",
+            "Wyśrodkuj w poziomie",
+            "Przycinanie obrazu",
+            "Kopiuj link do obiektu",
+            "Link do obiektu",
+            "Zablokuj",
+            "Odblokuj wszystko",
+            "Edytuj linię",
+        ],
+    ),
+    (
+        "pt-PT",
+        [
+            "Procure menus, comandos e descubra pedras preciosas ocultas",
+            "Nenhum comando correspondente...",
+            "Selecionar",
+            "Confirmar",
+            "Fechar",
+            "Usado recentemente",
+            "Comando não está disponível...",
+            "Exportar imagem...",
+            "Guardar no disco",
+            "Copiar para a área de transferência como SVG",
+            "Biblioteca",
+            "Colaboração ao vivo...",
+            "Partilhar",
+            "Texto para diagrama",
+            "Mermaid para Excalidraw",
+            "Fundo da área de desenho",
+            "Alterar cor do traço",
+            "Alterar cor do fundo",
+            "Trocar forma",
+            "Aproximar para enquadrar todos os elementos",
+            "Aproximar para enquadrar a seleção",
+            "Aproximar para enquadrar no cisualizador",
+            "Show hints",
+            "Ajustar seleção no quadro",
+            "Centrar verticalmente",
+            "Centrar horizontalmente",
+            "Corte de imagem",
+            "Copiar hiperligação para o objeto",
+            "Hiperligação para o objeto",
+            "Bloquear",
+            "Desbloquear tudo",
+            "Editar linha",
+        ],
+    ),
+    (
+        "pt-BR",
+        [
+            "Procure menus, comandos e descubra gemas ocultas",
+            "Nenhum comando correspondente...",
+            "Selecionar",
+            "Confirmar",
+            "Fechar",
+            "Usado recentemente",
+            "Comando indisponível...",
+            "Exportar imagem...",
+            "Salvar no computador",
+            "Copiar para a área de transferência como SVG",
+            "Biblioteca",
+            "Colaboração ao vivo...",
+            "Compartilhar",
+            "Texto para diagrama",
+            "Mermaid para Excalidraw",
+            "Fundo da tela",
+            "Alterar cor da borda",
+            "Alterar cor de fundo",
+            "Trocar forma",
+            "Ampliar para encaixar todos os elementos",
+            "Ampliar para ajustar a seleção",
+            "Zoom para caber na tela",
+            "Show hints",
+            "Ajustar seleção no frame",
+            "Centralizar verticalmente",
+            "Centralizar horizontalmente",
+            "Recorte de imagem",
+            "Copiar link para o objeto",
+            "Links para o objeto",
+            "Bloquear",
+            "Desbloquear tudo",
+            "Editar linha",
+        ],
+    ),
+    (
+        "ro-RO",
+        [
+            "Caută meniuri, comenzi și descoperă nestemate ascunse",
+            "Nicio comandă potrivită...",
+            "Selectare",
+            "Confirmare",
+            "Închidere",
+            "Utilizate recent",
+            "Comanda nu este disponibilă...",
+            "Exportare imagine...",
+            "Salvare pe disc",
+            "Copiere în memoria temporară ca SVG",
+            "Bibliotecă",
+            "Colaborare în direct...",
+            "Distribuie",
+            "Text la diagramă",
+            "Mermaid la Excalidraw",
+            "Fundalul pânzei",
+            "Modificare culoare contur",
+            "Modificare culoare de contur",
+            "Comutare formă",
+            "Transfocare pentru a cuprinde toate elementele",
+            "Transfocare pentru a cuprinde selecția",
+            "Transfocare pentru a se potrivi în poarta de vizualizare",
+            "Show hints",
+            "Încapsulare selecție în cadru",
+            "Centrare verticală",
+            "Centrare orizontală",
+            "Decupare imagine",
+            "Copiere link către obiect",
+            "Link către obiect",
+            "Blocare",
+            "Deblocare toate",
+            "Editare linie",
+        ],
+    ),
+    (
+        "sk-SK",
+        [
+            "Prehľadávajte menu, príkazy a objavte skryté poklady",
+            "Žiadne vyhovujúce príkazy...",
+            "Vybrať",
+            "Potvrdiť",
+            "Zavrieť",
+            "Nedávno použité",
+            "Príkaz nie je dostupný...",
+            "Exportovať obrázok...",
+            "Uložiť na disk",
+            "Kopírovať do schránky ako SVG",
+            "Knižnica",
+            "Živá spolupráca...",
+            "Zdieľať",
+            "Text na diagram",
+            "Mermaid do Excalidraw",
+            "Pozadie plátna",
+            "Zmeniť farbu orámovania",
+            "Zmeniť farbu pozadia",
+            "Zmeniť tvar",
+            "Priblížiť aby boli zahrnuté všetky prvky",
+            "Priblížiť na výber",
+            "Priblížiť na veľkosť zobrazenia",
+            "Show hints",
+            "Zabaliť výber do rámu",
+            "Zarovnať zvislo na stred",
+            "Zarovnať vodorovne na stred",
+            "Orezanie obrázka",
+            "Kopírovať odkaz na objekt",
+            "Odkaz na objekt",
+            "Zamknúť",
+            "Odomknúť všetko",
+            "Upraviť čiaru",
+        ],
+    ),
+    (
+        "sl-SI",
+        [
+            "Išči po menijih, ukazih in odkrij skrite funkcije",
+            "Ni ustreznih ukazov ...",
+            "Izberi",
+            "Potrdi",
+            "Zapri",
+            "Nedavno uporabljeno",
+            "Ukaz ni na voljo ...",
+            "Izvozi sliko...",
+            "Shrani na disk",
+            "Kopiraj v odložišče kot SVG",
+            "Knjižnica",
+            "Sodelovanje v živo...",
+            "Deli",
+            "Besedilo v diagram",
+            "Mermaid v Excalidraw",
+            "Ozadje platna",
+            "Spremeni barvo poteze",
+            "Spremeni barvo ozadja",
+            "Spremeni obliko",
+            "Približaj na vse elemente",
+            "Približaj na izbor",
+            "Približaj na vidno polje",
+            "Show hints",
+            "Zavij izbor v okvir",
+            "Navpično na sredini",
+            "Vodoravno na sredini",
+            "Obrezovanje slike",
+            "Kopiraj povezavo do objekta",
+            "Povezava do objekta",
+            "Zakleni",
+            "Odkleni vse",
+            "Uredi črto",
+        ],
+    ),
+    (
+        "sv-SE",
+        [
+            "Sök menyer, kommandon och upptäck dolda pärlor",
+            "Inga matchande kommandon...",
+            "Välj",
+            "Bekräfta",
+            "Stäng",
+            "Nyligen använda",
+            "Kommandot är inte tillgängligt...",
+            "Exportera bild...",
+            "Spara till disk",
+            "Kopiera till urklipp som SVG",
+            "Bibliotek",
+            "Samarbeta live...",
+            "Dela",
+            "Text till diagram",
+            "Mermaid till Excalidraw",
+            "Canvas-bakgrund",
+            "Ändra streckfärg",
+            "Ändra bakgrundsfärg",
+            "Byt form",
+            "Zooma för att rymma alla element",
+            "Zooma för att passa urval",
+            "Zooma för att passa in i vyn",
+            "Show hints",
+            "Omslut urvaled i ram",
+            "Centrera vertikalt",
+            "Centrera horisontellt",
+            "Bildbeskärning",
+            "Kopiera länk till objektet",
+            "Länk till objektet",
+            "Lås",
+            "Lås upp alla",
+            "Redigera linje",
+        ],
+    ),
+    (
+        "tr-TR",
+        [
+            "Menülerde, komutlarda arama yapın ve saklı kalmış hazineleri keşfedin",
+            "Eşleşen komut yok...",
+            "Seç",
+            "Onayla",
+            "Kapat",
+            "Son kullanılan",
+            "Komut mevcut değil...",
+            "Resimleri dışa aktar...",
+            "Belleğe kaydet",
+            "Panoya SVG olarak kopyala",
+            "Kütüphane",
+            "Canlı ortak çalışma alanı...",
+            "Paylaş",
+            "Yazıdan diyagrama",
+            "Mermaid'den Excalidraw'a",
+            "Tuval arka planı",
+            "Kontur rengini değiştir",
+            "Arka plan rengini değiştir",
+            "Şekli başkasıyla değiştir",
+            "Tüm öğeleri sığdırmak için yakınlaştırın",
+            "Seçime sığdırmak için yakınlaştırın",
+            "Görüş alanına sığdırmak için yakınlaştırın",
+            "Show hints",
+            "Seçimi karede kaydır",
+            "Dikeyde ortala",
+            "Yatayda ortala",
+            "Görsel kırpma",
+            "Bağlantıyı nesneye kopyala",
+            "Nesneye bağlantıla",
+            "Kilitle",
+            "Hepsinin kilidini kaldır",
+            "Çizgiyi düzenle",
+        ],
+    ),
+    (
+        "ru-RU",
+        [
+            "Поиск меню, команд и скрытых сокровищ",
+            "Нет подходящих команд...",
+            "Выбрать",
+            "Подтвердить",
+            "Закрыть",
+            "Недавно использованные",
+            "Команда недоступна...",
+            "Экспортировать изображение...",
+            "Сохранить на диск",
+            "Скопировать в буфер обмена как SVG",
+            "Библиотека",
+            "Онлайн взаимодействие...",
+            "Поделиться",
+            "Текст в диаграмму",
+            "Mermaid в Excalidraw",
+            "Фон холста",
+            "Изменить цвет обводки",
+            "Изменить цвет фона",
+            "Сменить форму",
+            "Приблизьте все элементы",
+            "Увеличить до выделенного",
+            "Масштабировать до области просмотра",
+            "Show hints",
+            "Поместить выделенное в фрейм",
+            "Центрировать по вертикали",
+            "Центрировать по горизонтали",
+            "Обрезка изображения",
+            "Скопировать ссылку на объект",
+            "Ссылка на объект",
+            "Блокировать",
+            "Разблокировать все",
+            "Редактирование строки",
+        ],
+    ),
+    (
+        "uk-UA",
+        [
+            "Шукайте меню, команди та відкривайте приховані перлини",
+            "Немає відповідних команд...",
+            "Вибрати",
+            "Підтвердити",
+            "Закрити",
+            "Нещодавно використані",
+            "Команда недоступна...",
+            "Експорт зображення...",
+            "Зберегти на диск",
+            "Копіювати як SVG",
+            "Бібліотека",
+            "Спільна робота наживо...",
+            "Поділитися",
+            "Діаграма з тексту",
+            "Mermaid у Excalidraw",
+            "Тло полотна",
+            "Змінити колір обведення",
+            "Змінити колір фону",
+            "Switch shape",
+            "Збільшити, щоб умістити всі елементи",
+            "Збільшити, щоб відповідати виділенню",
+            "Збільшити до розміру перегляду",
+            "Show hints",
+            "Обтікання виділеного фрагмента рамкою",
+            "Центрувати по вертикалі",
+            "Центрувати по горизонталі",
+            "Обрізка зображення",
+            "Копіювати посилання на об'єкт",
+            "Посилання на об’єкт",
+            "Блокувати",
+            "Розблокувати все",
+            "Редагувати лінію",
+        ],
+    ),
+    (
+        "he-IL",
+        [
+            "תפריטי חיפוש, פקודות ואבני חן נעלמות",
+            "אין פקודות תואמות…",
+            "בחירה",
+            "אישור",
+            "סגירה",
+            "בשימוש לאחרונה",
+            "הפקודה לא זמינה…",
+            "ייצוא התמונה…",
+            "שמור לכונן",
+            "העתקה ללוח כ־SVG",
+            "ספריה",
+            "התחלת שיתוף חי…",
+            "שיתוף",
+            "טקסט לתרשים",
+            "Mermaid ל־Excalidraw",
+            "רקע קנבס",
+            "החלפת צבע קו מתאר",
+            "החלפת צבע הרקע",
+            "החלפת צורה",
+            "שינוי מרחק התצוגה כך שיוצגו כל הרכיבים",
+            "שינוי מרחק התצוגה כך שיתאים לבחירה",
+            "שינוי מרחק התצוגה כך שיתאים לגודל המסך",
+            "Show hints",
+            "לעטוף את הבחירה במסגרת",
+            "מירכוז אנכי",
+            "מירכוז אופקי",
+            "חיתוך תמונה",
+            "העתקת קישור לפריט",
+            "קישור לפריט",
+            "נעילה",
+            "שחרור הכול",
+            "עריכת קו",
+        ],
+    ),
+    (
+        "ar-SA",
+        [
+            "ابحث في القوائم، الأوامر، واكتشف الجواهر المخفية",
+            "لا توجد أوامر مطابقة...",
+            "اختر",
+            "تأكيد",
+            "إغلاق",
+            "المستخدمة مؤخرًا",
+            "الأمر غير متوفر...",
+            "تصدير الصورة...",
+            "حفظ الملف على الجهاز",
+            "نسخ إلى الحافظة بصيغة SVG",
+            "مكتبة",
+            "التعاون المباشر...",
+            "مشاركة",
+            "نص إلى رسم بياني",
+            "من Mermaid إلى Excalidraw",
+            "خلفية اللوحة",
+            "تغيير لون القلم",
+            "تغيير لون الخلفية",
+            "Switch shape",
+            "تكبير لتلائم جميع العناصر",
+            "تكبير للعنصر المحدد",
+            "التكبير لتناسب العرض",
+            "Show hints",
+            "تغليف التحديد في إطار",
+            "توسيط عمودي",
+            "توسيط أفقي",
+            "قص الصورة",
+            "نسخ رابط الكائن",
+            "رابط إلى الكائن",
+            "قفل",
+            "فتح الكل",
+            "تحرير السطر",
+        ],
+    ),
+    (
+        "fa-IR",
+        [
+            "در فهرست‌ها و دستورها را جستجو کنید هم سنگهای پنهان را کشف کنید",
+            "دستوری یافت نشد...",
+            "انتخاب",
+            "تایید",
+            "بستن",
+            "اخیراً استفاده شده",
+            "دستور در دسترس نیست...",
+            "خروجی گرفتن از تصویر...",
+            "ذخیره در دیسک",
+            "کپی در حافطه موقت به صورت SVG",
+            "کتابخانه",
+            "همکاری آنلاین...",
+            "اشتراک‌گذاری",
+            "متن به دیاگرام",
+            "مرمید به excalidraw",
+            "پس‌زمینه بوم",
+            "تغییر رنگ حاشیه",
+            "تغییر رنگ پس زمینه",
+            "تعویض شکل",
+            "بزرگنمایی برای دیدن تمام آیتم ها",
+            "بزرگنمایی به اندازه قسمت انتخاب شده",
+            "بزرگنمایی به اندازه نمایشگر",
+            "Show hints",
+            "انتخاب را در قاب قرار دهید",
+            "وسط قرار دادن به صورت عمودی",
+            "وسط قرار دادن به صورت افقی",
+            "برش عکس",
+            "کپی لینک به آیتم",
+            "لینک به آیتم",
+            "قفل",
+            "باز کردن قفل همه",
+            "ویرایش لینک",
+        ],
+    ),
+    (
+        "ja-JP",
+        [
+            "メニュー、コマンドを検索して便利な機能を見つけよう",
+            "一致するコマンドはありません...",
+            "選択",
+            "確認",
+            "閉じる",
+            "最近使ったもの",
+            "コマンドを利用できません...",
+            "画像のエクスポート...",
+            "ディスクに保存",
+            "SVGとしてクリップボードへコピー",
+            "ライブラリ",
+            "共同編集...",
+            "共有",
+            "テキストからダイアグラムを生成",
+            "Mermaid を Excalidraw に変換",
+            "キャンバスの背景",
+            "線の色を変更",
+            "背景色変更",
+            "図形形状を変更",
+            "すべての要素が収まるようにズーム",
+            "選択範囲に合わせてズーム",
+            "表示範囲に合わせてズーム",
+            "Show hints",
+            "選択範囲をフレームで囲む",
+            "垂直方向に中央揃え",
+            "水平方向に中央揃え",
+            "画像の切り抜き",
+            "オブジェクトへのリンクをコピー",
+            "オブジェクトにリンク",
+            "ロック",
+            "すべてのロックを解除",
+            "行を編集",
+        ],
+    ),
+    (
+        "zh-CN",
+        [
+            "搜索菜单、命令、探索隐藏功能",
+            "没有匹配的命令……",
+            "选择",
+            "确定",
+            "关闭",
+            "最近使用",
+            "命令不可用……",
+            "导出图片...",
+            "保存到本地",
+            "复制为 SVG 到剪贴板",
+            "素材库",
+            "实时协作...",
+            "分享",
+            "文字至图表",
+            "Mermaid 至 Excalidraw",
+            "画布背景",
+            "更改描边颜色",
+            "更改背景颜色",
+            "切换形状",
+            "缩放以适应所有元素",
+            "缩放以适应选区",
+            "缩放以适应视图",
+            "Show hints",
+            "用选中的元素创建画框",
+            "垂直居中",
+            "水平居中",
+            "图片裁剪",
+            "复制此对象的链接",
+            "链接到对象",
+            "锁定",
+            "全部解锁",
+            "编辑线条",
+        ],
+    ),
+    (
+        "zh-TW",
+        [
+            "搜尋選單與指令並找出隱藏功能",
+            "沒有符合的指令…",
+            "選取",
+            "確認",
+            "關閉",
+            "最近使用",
+            "指令無法使用…",
+            "匯出圖片",
+            "儲存至硬碟",
+            "以 SVG 格式複製到剪貼簿",
+            "資料庫",
+            "即時協作...",
+            "分享",
+            "文字轉圖表",
+            "Mermaid 至 Excalidraw",
+            "Canvas 背景",
+            "變更筆畫顏色",
+            "變更背景顏色",
+            "切換形狀",
+            "縮放至顯示所有元素",
+            "縮放至符合選取區",
+            "縮放至符合 viewport",
+            "Show hints",
+            "將選取內容放入框架",
+            "垂直置中",
+            "水平置中",
+            "圖片剪裁",
+            "複製此物件的連結",
+            "連結至物件",
+            "鎖定",
+            "全部解鎖",
+            "編輯線條",
+        ],
+    ),
+    (
+        "ko-KR",
+        [
+            "메뉴와 명령을 검색하고 숨겨진 기능을 찾아보세요",
+            "일치하는 명령이 없습니다...",
+            "선택",
+            "확인",
+            "닫기",
+            "최근 사용",
+            "사용할 수 없는 명령입니다...",
+            "이미지 내보내기",
+            "디스크에 저장",
+            "클립보드로 SVG 이미지 복사",
+            "라이브러리",
+            "실시간 협업...",
+            "공유",
+            "텍스트를 표로 만들기",
+            "Mermaid를 Excalidraw로",
+            "캔버스 배경",
+            "선 색상 변경",
+            "배경색 변경",
+            "도형 변경",
+            "모든 요소가 보이도록 확대/축소",
+            "선택 영역으로 확대/축소",
+            "뷰포트에 맞게 확대/축소",
+            "Show hints",
+            "선택 영역을 프레임으로 감싸기",
+            "수직으로 중앙 정렬",
+            "수평으로 중앙 정렬",
+            "이미지 자르기",
+            "객체 링크 복사",
+            "객체에 연결",
+            "잠금",
+            "모두 잠금 해제",
+            "선 수정하기",
+        ],
+    ),
+];
+
+fn palette_strings() -> HashMap<&'static str, HashMap<&'static str, &'static str>> {
+    PALETTE_I18N
+        .iter()
+        .map(|(code, values)| {
+            (
+                *code,
+                PALETTE_I18N_KEYS
+                    .iter()
+                    .copied()
+                    .zip(values.iter().copied())
+                    .collect(),
+            )
+        })
+        .collect()
+}
+
+const PALETTE_EXTRA_KEYS: [&str; 4] = [
+    "welcomeScreen.defaults.helpHint",
+    "overwriteConfirm.action.excalidrawPlus.button",
+    "labels.polygon.convertToPolygon",
+    "labels.link.label",
+];
+
+/// Palette rows whose upstream strings live outside the palette's own key
+/// set: the host's "Export to Excalidraw+" entry plus three labels upstream
+/// keeps under other sections. Kept in a table of its own, matching the
+/// other panel tables above.
+static PALETTE_EXTRA: [(&str, [&str; 4]); 25] = [
+    (
+        "en",
+        [
+            "Shortcuts & help",
+            "Export to Excalidraw+",
+            "Convert to polygon",
+            "Link",
+        ],
+    ),
+    (
+        "id-ID",
+        [
+            "Pintasan & bantuan",
+            "Ekspor ke Excalidraw+",
+            "Konversi ke poligon",
+            "Tautan",
+        ],
+    ),
+    (
+        "de-DE",
+        [
+            "Kurzbefehle & Hilfe",
+            "Export nach Excalidraw+",
+            "In Polygon umwandeln",
+            "Link",
+        ],
+    ),
+    (
+        "es-ES",
+        [
+            "Atajos y ayuda",
+            "Exportar a Excalidraw+",
+            "Convertir en polígono",
+            "Enlace",
+        ],
+    ),
+    (
+        "eu-ES",
+        [
+            "Lasterbideak eta laguntza",
+            "Esportatu Excalidraw+ra",
+            "Bihurtu poligono",
+            "Esteka",
+        ],
+    ),
+    (
+        "fr-FR",
+        [
+            "Raccourcis et aide",
+            "Exporter vers Excalidraw+",
+            "Convertir en polygone",
+            "Lien",
+        ],
+    ),
+    (
+        "it-IT",
+        [
+            "Scorciatoie & aiuto",
+            "Esporta su Excalidraw+",
+            "Converti in poligono",
+            "Link",
+        ],
+    ),
+    (
+        "nl-NL",
+        [
+            "Snelkoppelingen en hulp",
+            "Exporteer naar Excalidraw+",
+            "Veranderen naar veelhoek",
+            "Link",
+        ],
+    ),
+    (
+        "pl-PL",
+        [
+            "Skróty klawiaturowe i pomoc",
+            "Eksportuj do Excalidraw+",
+            "Przekształć w wielokąt",
+            "Łącze",
+        ],
+    ),
+    (
+        "pt-PT",
+        [
+            "Atalhos e ajuda",
+            "Exportar para Excalidraw+",
+            "Converter em polígono",
+            "Hiperligação",
+        ],
+    ),
+    (
+        "pt-BR",
+        [
+            "Atalhos e ajuda",
+            "Exportar para Excalidraw+",
+            "Converter para polígono",
+            "Link",
+        ],
+    ),
+    (
+        "ro-RO",
+        [
+            "Comenzi rapide și ajutor",
+            "Exportare în Excalidraw+",
+            "Convertire în poligon",
+            "URL",
+        ],
+    ),
+    (
+        "sk-SK",
+        [
+            "Klávesové skratky a pomocník",
+            "Exportovať ako Excalidraw+",
+            "Zmeniť na polygón",
+            "Odkaz",
+        ],
+    ),
+    (
+        "sl-SI",
+        [
+            "Bližnjice in pomoč",
+            "Izvozi v Excalidraw+",
+            "Pretvori v poligon",
+            "Povezava",
+        ],
+    ),
+    (
+        "sv-SE",
+        [
+            "Genvägar & hjälp",
+            "Exportera till Excalidraw+",
+            "Konvertera till polygon",
+            "Länk",
+        ],
+    ),
+    (
+        "tr-TR",
+        [
+            "Kısayollar & yardım",
+            "Excalidraw+'a aktar",
+            "Çokgene dönüştür",
+            "Bağlantı",
+        ],
+    ),
+    (
+        "ru-RU",
+        [
+            "Сочетания клавиш и справка",
+            "Экспорт в Excalidraw+",
+            "Преобразовать в полигон",
+            "Ссылка",
+        ],
+    ),
+    (
+        "uk-UA",
+        [
+            "Гарячі клавіші і допомога",
+            "Експортувати до Excalidraw+",
+            "Convert to polygon",
+            "Посилання",
+        ],
+    ),
+    (
+        "he-IL",
+        [
+            "קיצורים & עזרה",
+            "ייצוא ל־Excalidraw+‎",
+            "המרה למצולע",
+            "קישור",
+        ],
+    ),
+    (
+        "ar-SA",
+        [
+            "الاختصارات والمساعدة",
+            "تصدير إلى Excalidraw+",
+            "Convert to polygon",
+            "رابط",
+        ],
+    ),
+    (
+        "fa-IR",
+        [
+            "میانبرها و راهنما",
+            "خروجی به Excalidraw+",
+            "تبدیل به چندضلعی",
+            "لینک",
+        ],
+    ),
+    (
+        "ja-JP",
+        [
+            "ショートカットとヘルプ",
+            "Excalidraw+にエクスポート",
+            "ポリゴンに変換",
+            "リンク",
+        ],
+    ),
+    (
+        "zh-CN",
+        ["快捷键和帮助", "导出到 Excalidraw+", "转换为多边形", "链接"],
+    ),
+    (
+        "zh-TW",
+        ["快速鍵與說明", "匯出至 Excalidraw+", "轉換為多邊形", "連結"],
+    ),
+    (
+        "ko-KR",
+        [
+            "단축키 & 도움말",
+            "Excalidraw+로 내보내기",
+            "다각형으로 변환",
+            "링크",
+        ],
+    ),
+];
+
+fn palette_extra_strings() -> HashMap<&'static str, HashMap<&'static str, &'static str>> {
+    PALETTE_EXTRA
+        .iter()
+        .map(|(code, values)| {
+            (
+                *code,
+                PALETTE_EXTRA_KEYS
                     .iter()
                     .copied()
                     .zip(values.iter().copied())

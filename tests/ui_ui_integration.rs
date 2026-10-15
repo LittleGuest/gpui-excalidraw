@@ -654,21 +654,48 @@ fn ctrl_slash_filters_and_runs_the_command_palette(cx: &mut TestAppContext) {
         window.press("ctrl-/", cx);
         content.update(cx, |editor, _| assert!(editor.is_palette_open()));
 
+        window.render_frame(cx);
+        assert!(
+            window.find("palette-hints").visible(),
+            "the palette should show its shortcut hints"
+        );
+        for category in ["App", "Export", "Editor", "Tools"] {
+            let id = gpui_kit::SharedString::from(format!("palette-section-{category}"));
+            assert!(
+                window.try_find(id.clone()).is_some(),
+                "{id} heading is missing"
+            );
+        }
+        assert!(
+            window.try_find("palette-section-Elements").is_none(),
+            "element commands need a selection, so the group must stay hidden"
+        );
+
+        let panel = window.find("palette-panel").bounds();
+        let hints = window.find("palette-hints").bounds();
+        let commands = window.find("palette-commands").bounds();
+        assert!(
+            panel.size.width >= px(700.0),
+            "the dialog should use upstream's 720px width, got {panel:?}"
+        );
+        assert!(
+            hints.origin.y < commands.origin.y,
+            "the hint strip sits above the command list"
+        );
+
         window.input("rect", cx);
         window.render_frame(cx);
         content.update(cx, |editor, _| {
             assert_eq!(editor.palette_query(), "rect");
-            let results: Vec<&str> = editor
-                .palette_results()
-                .into_iter()
-                .map(|(id, ..)| id)
-                .collect();
-            assert_eq!(
-                results,
-                vec!["tool-rectangle"],
-                "the filter is not matching"
-            );
         });
+        assert!(
+            window.try_find("palette-row-1").is_none(),
+            "the filter should collapse the list to a single match"
+        );
+        assert!(
+            window.try_find("palette-section-Tools").is_some(),
+            "the rectangle tool lives in the Tools group"
+        );
 
         window.press("enter", cx);
         content.update(cx, |editor, _| {
@@ -701,14 +728,15 @@ fn palette_rows_are_clickable_over_the_backdrop(cx: &mut TestAppContext) {
         content.update(cx, |editor, _| assert!(editor.is_palette_open()));
 
         window.render_frame(cx);
+        window.input("rect", cx);
+        window.render_frame(cx);
         window.click("palette-row-0", cx);
         content.update(cx, |editor, _| {
-            assert_eq!(
-                editor.document.tool,
-                Tool::Selection,
-                "the row click missed"
+            assert!(
+                !editor.is_palette_open(),
+                "the click should land on the row, not the backdrop"
             );
-            assert!(!editor.is_palette_open());
+            assert_eq!(editor.document.tool, Tool::Rectangle);
         });
     })
     .unwrap();
@@ -734,6 +762,79 @@ fn palette_escape_dismisses_without_running(cx: &mut TestAppContext) {
                 "escape ran a command"
             );
         });
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn palette_lists_the_upstream_command_set(cx: &mut TestAppContext) {
+    let _ = cx;
+
+    let labels = Editor::palette_labels();
+
+    for expected in [
+        "labels.toggleTheme",
+        "toolBar.library",
+        "search.title",
+        // rows the released palette adds on top of the open-source list
+        "labels.liveCollaboration",
+        "labels.share",
+        "overwriteConfirm.action.excalidrawPlus.button",
+        // export rows, in upstream declaration order
+        "buttons.exportImage",
+        "exportDialog.disk_title",
+        "labels.copyAsPng",
+        "labels.copyAsSvg",
+        "toolBar.lock",
+    ] {
+        assert!(labels.contains(&expected), "palette is missing {expected}");
+    }
+
+    assert!(
+        !labels.contains(&"menu.open"),
+        "upstream has no open row in the palette"
+    );
+}
+
+#[gpui_kit::test]
+fn palette_greys_out_unimplemented_upstream_commands(cx: &mut TestAppContext) {
+    let (window, content) = open_editor(cx);
+
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        window.press("ctrl-/", cx);
+        window.render_frame(cx);
+        window.input("collab", cx);
+        window.render_frame(cx);
+
+        assert!(
+            window.try_find("palette-row-0").is_some(),
+            "the host collaboration row should still be listed"
+        );
+        assert!(
+            window.try_find("palette-row-1").is_none(),
+            "\"collab\" should only match the host row"
+        );
+
+        window.click("palette-row-0", cx);
+        content.update(cx, |editor, _| {
+            assert!(
+                editor.is_palette_open(),
+                "clicking a greyed-out row must neither run nor dismiss"
+            );
+        });
+
+        window.render_frame(cx);
+        window.press("enter", cx);
+        content.update(cx, |editor, _| {
+            assert!(
+                editor.is_palette_open(),
+                "confirming a greyed-out row must be inert too"
+            );
+        });
+
+        window.press("escape", cx);
+        content.update(cx, |editor, _| assert!(!editor.is_palette_open()));
     })
     .unwrap();
 }
