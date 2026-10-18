@@ -10,7 +10,7 @@ This is a **single Rust library crate** that reimplements Excalidraw — the han
 
 - **Pure Rust library** (lib name `gpui_excalidraw`) consumable by downstream GPUI Kit applications.
 - **1:1 data model** — element types, fill styles, stroke styles, arrowheads, bindings, and the `.excalidraw` JSON schema match Excalidraw's `packages/element/src/types.ts` exactly.
-- **i18n** — 11 locales (English, 简体中文, 繁體中文, 日本語, 한국어, Deutsch, Français, Español, Italiano, Português, Русский) with runtime language switching.
+- **i18n** — 25 locales (English, Bahasa Indonesia, Deutsch, Español, Euskara, Français, Italiano, Nederlands, Polski, Português, Português Brasileiro, Română, Slovenčina, Slovenščina, Svenska, Türkçe, Русский, Українська, עברית, العربية, فارسی, 日本語, 简体中文, 繁體中文, 한국어) with runtime language switching.
 - **Theming** — light/dark theme switching mapped onto GPUI Kit's semantic design tokens.
 - **Hand-drawn rendering** — a roughjs-style renderer (hachure / cross-hatch / zigzag / solid fills, deterministic seeded jitter) producing the signature Excalidraw "sketchy" look.
 - **Full editing interaction** — selection (marquee + click), drawing (rectangle / diamond / ellipse / arrow / line / freedraw / text / image / frame / sticky note), move / resize / rotate handles, multi-point line & arrow authoring (click-click-Enter or double-click, draggable vertices), endpoint binding (arrows/lines auto-attach to shape outlines and re-glue when the shape moves or rotates), alt-drag duplicate, grid snapping, Shift angle / square constraints, clipboard (copy / cut / paste / select-all), space-drag pan, zoom-to-fit / zoom-to-selection, text inline editing, eraser (drag), laser pointer, pan, zoom-to-cursor, undo/redo, delete, duplicate.
@@ -28,17 +28,16 @@ This is a **single Rust library crate** that reimplements Excalidraw — the han
 The whole package lives at the repository root:
 
 ```
-Cargo.toml             Single package: lib `gpui_excalidraw` + bin `excalidraw_example`
+Cargo.toml             Single package: lib `gpui_excalidraw` + example `excalidraw_example`
 build.rs               Embeds assets/icons/*.svg into `ui::icons`
-assets/                icons/ (128 upstream glyphs) + fonts/ (Excalifont, Virgil)
+assets/                icons/ (140 upstream glyphs) + fonts/ (Excalifont, Virgil)
 src/
   lib.rs               Crate root: `pub mod core` / `render` / `ui` + top-level re-exports
   core/                Data model, geometry, element types, scene, collision, transform
   render/              Hand-drawn (roughjs-style) renderer + SVG/PNG exporters
   ui/                  GPUI Kit editor: toolbar, canvas, interaction, i18n, theme, export
-  bin/                 The single-window editor application
 tests/                 Integration tests (core_*, render, ui_*)
-examples/              verify_features, demo_scene_svg, export_demo
+examples/              excalidraw_example, verify_features, demo_scene_svg, export_demo
 ```
 
 The layer directories are declared through `#[path]` in `src/core/lib.rs`,
@@ -50,7 +49,7 @@ The layer directories are declared through `#[path]` in `src/core/lib.rs`,
 
 ```bash
 # Run the full editor application (requires a desktop environment)
-cargo run --bin excalidraw_example
+cargo run --example excalidraw_example
 
 # Run all tests (unit + integration + headless UI tests)
 cargo test

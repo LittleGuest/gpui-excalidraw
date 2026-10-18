@@ -152,17 +152,6 @@ pub struct Editor {
 
     show_link_dialog: bool,
     link_input: String,
-
-    scene_store: Option<SceneStore>,
-}
-
-type SceneSaveFn = Box<dyn Fn(&str, &str) -> Result<(), String>>;
-type SceneLoadFn = Box<dyn Fn() -> Result<Vec<(String, String)>, String>>;
-
-/// Host-provided synchronous persistence for the scene document.
-pub struct SceneStore {
-    save: SceneSaveFn,
-    load: SceneLoadFn,
 }
 
 impl Editor {
@@ -249,7 +238,6 @@ impl Editor {
             font_query: String::new(),
             show_link_dialog: false,
             link_input: String::new(),
-            scene_store: None,
         }
     }
 
@@ -277,21 +265,6 @@ impl Editor {
 
     pub fn set_theme(&mut self, theme: Theme) {
         self.document.set_theme(theme);
-    }
-
-    /// Installs a synchronous document store hook used by the "save to store" /
-    /// "open from store" menu entries. Hosts that keep documents in a database
-    /// or elsewhere can plug in their own persistence without touching the
-    /// editor internals.
-    pub fn set_scene_store<F, G>(&mut self, save: F, load: G)
-    where
-        F: Fn(&str, &str) -> Result<(), String> + 'static,
-        G: Fn() -> Result<Vec<(String, String)>, String> + 'static,
-    {
-        self.scene_store = Some(SceneStore {
-            save: Box::new(save),
-            load: Box::new(load),
-        });
     }
 
     /// Replaces the whole scene, keeping undo history, selection state and the
@@ -340,40 +313,6 @@ impl Editor {
         let (scene, app_state) =
             crate::export::json_to_scene(json).map_err(|err| err.to_string())?;
         self.replace_scene(scene, app_state);
-        Ok(())
-    }
-
-    /// Saves the current scene through the installed scene store.
-    pub fn save_to_store(&mut self, name: &str) -> Result<(), String> {
-        let Some(store) = self.scene_store.as_ref() else {
-            return Err("no scene store installed".to_string());
-        };
-        let json = self.scene_json()?;
-        (store.save)(name, &json)
-    }
-
-    pub fn scene_store_installed(&self) -> bool {
-        self.scene_store.is_some()
-    }
-
-    /// Documents available through the installed scene store, newest first.
-    pub fn store_documents(&self) -> Result<Vec<(String, String)>, String> {
-        match self.scene_store.as_ref() {
-            Some(store) => (store.load)(),
-            None => Ok(Vec::new()),
-        }
-    }
-
-    /// Loads one document from the installed scene store by name.
-    pub fn load_from_store(&mut self, name: &str) -> Result<(), String> {
-        let docs = self.store_documents()?;
-        let json = docs
-            .into_iter()
-            .find(|(doc_name, _)| doc_name == name)
-            .map(|(_, json)| json)
-            .ok_or_else(|| format!("document not found: {name}"))?;
-        self.load_scene_json(&json)?;
-        self.project_name = name.to_string();
         Ok(())
     }
 
@@ -4702,51 +4641,6 @@ impl Editor {
                     this.show_menu = false;
                 })),
             )
-            .when(self.scene_store.is_some(), |menu| {
-                menu.child(
-                    chrome::menu_row_with(
-                        "fm-store-save",
-                        Some("ExportIcon"),
-                        &t("menu.save"),
-                        Some("Ctrl+Shift+S"),
-                        false,
-                        tokens,
-                    )
-                    .on_click(Self::act(cx, |this, _, _, _| {
-                        let name = this.project_name_value();
-                        this.status = Some(match this.save_to_store(&name) {
-                            Ok(()) => format!("{}: {name}", this.i18n.t("menu.save")),
-                            Err(err) => err,
-                        });
-                        this.show_menu = false;
-                    })),
-                )
-                .child(
-                    chrome::menu_row_with(
-                        "fm-store-open",
-                        Some("LoadIcon"),
-                        &t("menu.open"),
-                        Some("Ctrl+Shift+O"),
-                        false,
-                        tokens,
-                    )
-                    .on_click(Self::act(cx, |this, _, _, _| {
-                        this.status = match &this.scene_store {
-                            Some(store) => match (store.load)() {
-                                Ok(docs) => docs.first().map(|(name, json)| {
-                                    match this.load_scene_json(json) {
-                                        Ok(()) => format!("{}: {name}", this.i18n.t("menu.open")),
-                                        Err(err) => err,
-                                    }
-                                }),
-                                Err(err) => Some(err),
-                            },
-                            None => Some("no scene store installed".to_string()),
-                        };
-                        this.show_menu = false;
-                    })),
-                )
-            })
             .child(
                 chrome::menu_row_with(
                     "fm-png",
