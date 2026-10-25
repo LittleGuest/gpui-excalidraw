@@ -863,12 +863,13 @@ pub fn render_element(element: &Element) -> Vec<Drawable> {
     let h = base.height;
 
     match element.kind() {
-        ElementType::Rectangle
-        | ElementType::Embeddable
-        | ElementType::Iframe
-        | ElementType::StickyNote => {
+        ElementType::Rectangle | ElementType::StickyNote => {
             vec![rough_rectangle(x, y, w, h, &opts)]
         }
+        ElementType::Embeddable | ElementType::Iframe => vec![
+            rough_rectangle(x, y, w, h, &opts),
+            embeddable_label_drawable(base, element.kind() == ElementType::Iframe, &opts),
+        ],
         ElementType::Frame | ElementType::MagicFrame => {
             let mut v = vec![rough_rectangle(x, y, w, h, &opts)];
             if let Element::Frame(f) | Element::MagicFrame(f) = element {
@@ -881,8 +882,20 @@ pub fn render_element(element: &Element) -> Vec<Drawable> {
         ElementType::Diamond => vec![rough_diamond(x, y, w, h, &opts)],
         ElementType::Line => {
             if let Element::Line(l) = element {
-                let mut drawables = vec![rough_line(&l.linear.points, &opts)];
+                let mut main = rough_line(&l.linear.points, &opts);
                 let points = &l.linear.points;
+                if l.polygon && points.len() >= 3 && opts.fill_color.is_some() {
+                    let mut ring = Vec::with_capacity(points.len() + 1);
+                    ring.push(Op::MoveTo(points[0].x, points[0].y));
+                    for point in &points[1..] {
+                        ring.push(Op::LineTo(point.x, point.y));
+                    }
+                    ring.push(Op::Close);
+                    let poly = ops_to_polygon(&ring);
+                    main.sets.extend(fill_sets_for(&poly, &opts));
+                    main.fill_path = Some(ring);
+                }
+                let mut drawables = vec![main];
                 if points.len() >= 2 {
                     if let Some(head) = l.linear.end_arrowhead {
                         drawables.push(arrowhead_drawable(
@@ -948,6 +961,135 @@ pub fn render_element(element: &Element) -> Vec<Drawable> {
     }
 }
 
+/// Upstream punches a hole in an arrow's stroke where its bound text label sits
+/// (`BOUND_TEXT_PADDING` in `renderElement.ts`). Our arrows are polylines, so
+/// the same effect is achieved by skipping the covered parts of the path.
+const BOUND_TEXT_PADDING: f64 = 5.0;
+
+/// Renders `element` with the rest of the scene available, which lets arrow
+/// labels cut their arrow the way upstream clips it.
+pub fn render_element_with_lookup(
+    element: &Element,
+    lookup: &std::collections::HashMap<&str, &Element>,
+) -> Vec<Drawable> {
+    if let Element::Arrow(arrow) = element
+        && let Some(hole) = arrow_label_hole(element, lookup)
+    {
+        let options = DrawOptions::from_element(element);
+        let mut drawables = Vec::new();
+        for piece in split_outside(&arrow.linear.points, &hole) {
+            drawables.push(rough_line(&piece, &options));
+        }
+        let points = &arrow.linear.points;
+        if points.len() >= 2 {
+            if let Some(head) = arrow.linear.end_arrowhead {
+                drawables.push(arrowhead_drawable(
+                    points[points.len() - 2],
+                    points[points.len() - 1],
+                    head,
+                    &options,
+                ));
+            }
+            if let Some(head) = arrow.linear.start_arrowhead {
+                drawables.push(arrowhead_drawable(points[1], points[0], head, &options));
+            }
+        }
+        return drawables;
+    }
+    render_element(element)
+}
+
+fn arrow_label_hole(
+    element: &Element,
+    lookup: &std::collections::HashMap<&str, &Element>,
+) -> Option<crate::core::bounds::Bounds> {
+    let bound = element.base().bound_elements.as_ref()?;
+    bound.iter().find_map(|item| {
+        if item.kind != crate::core::element::BoundElementType::Text {
+            return None;
+        }
+        match lookup.get(item.id.as_str()).copied()? {
+            Element::Text(t) => Some(
+                crate::core::bounds::Bounds::new(
+                    t.base.x,
+                    t.base.y,
+                    t.base.x + t.base.width,
+                    t.base.y + t.base.height,
+                )
+                .expand(BOUND_TEXT_PADDING),
+            ),
+            _ => None,
+        }
+    })
+}
+
+/// Splits a polyline into the pieces outside `hole`, joining sub-segments that
+/// meet so a straight run across the hole becomes two continuous strokes.
+fn split_outside(points: &[Point], hole: &crate::core::bounds::Bounds) -> Vec<Vec<Point>> {
+    let mut visible: Vec<(Point, Point)> = Vec::new();
+    for pair in points.windows(2) {
+        let (a, b) = (pair[0], pair[1]);
+        match segment_inside(a, b, hole) {
+            Some((t0, t1)) if t1 > t0 => {
+                if t0 > 0.0 {
+                    visible.push((a, a.lerp(b, t0)));
+                }
+                if t1 < 1.0 {
+                    visible.push((a.lerp(b, t1), b));
+                }
+            }
+            _ => visible.push((a, b)),
+        }
+    }
+
+    let mut pieces: Vec<Vec<Point>> = Vec::new();
+    for (a, b) in visible {
+        if let Some(last) = pieces.last_mut()
+            && last.last().is_some_and(|end| end.distance(a) < 1e-6)
+        {
+            last.push(b);
+            continue;
+        }
+        pieces.push(vec![a, b]);
+    }
+    pieces
+}
+
+/// Liang-Barsky clip of `a`-`b` against `rect`, returning the `[t0, t1]`
+/// interval lying inside it.
+fn segment_inside(a: Point, b: Point, rect: &crate::core::bounds::Bounds) -> Option<(f64, f64)> {
+    let dx = b.x - a.x;
+    let dy = b.y - a.y;
+    let mut t0 = 0.0f64;
+    let mut t1 = 1.0f64;
+    for (p, q) in [
+        (-dx, a.x - rect.min_x),
+        (dx, rect.max_x - a.x),
+        (-dy, a.y - rect.min_y),
+        (dy, rect.max_y - a.y),
+    ] {
+        if p.abs() < 1e-12 {
+            if q < 0.0 {
+                return None;
+            }
+            continue;
+        }
+        let r = q / p;
+        if p < 0.0 {
+            if r > t1 {
+                return None;
+            }
+            t0 = t0.max(r);
+        } else {
+            if r < t0 {
+                return None;
+            }
+            t1 = t1.min(r);
+        }
+    }
+    Some((t0, t1))
+}
+
 fn frame_label_drawable(x: f64, y: f64, name: &str, options: &DrawOptions) -> Drawable {
     let font_size = 14.0;
     Drawable {
@@ -966,6 +1108,58 @@ fn frame_label_drawable(x: f64, y: f64, name: &str, options: &DrawOptions) -> Dr
             color: options.stroke_color,
             width: name.chars().count() as f64 * font_size * 0.6,
             height: font_size * 1.4,
+            line_height: 1.25,
+        }),
+        image: None,
+        fill_path: None,
+        ink: None,
+    }
+}
+
+/// Upstream's pre-validation stand-in for web embeds, drawn in place of the
+/// iframe it cannot render: the link, or "Empty Web-Embed" when there is none.
+fn embeddable_label_drawable(
+    base: &crate::core::element::ElementBase,
+    is_iframe: bool,
+    options: &DrawOptions,
+) -> Drawable {
+    let text = if is_iframe {
+        "IFrame element".to_string()
+    } else {
+        base.link
+            .clone()
+            .filter(|link| !link.is_empty())
+            .unwrap_or_else(|| "Empty Web-Embed".to_string())
+    };
+    let chars = text.chars().count().max(1) as f64;
+    let font_size = (base.width / 2.0)
+        .min(base.width / chars)
+        .max(base.width / 30.0);
+    let width = (base.width - 20.0).max(1.0);
+    let wrapped = crate::core::text::wrap_text(&text, width, font_size);
+    let lines = wrapped.lines().count().max(1) as f64;
+    let height = lines * font_size * 1.25;
+    let color = if crate::core::color::is_transparent(&base.stroke_color) {
+        Rgba::new(0.0, 0.0, 0.0, 1.0)
+    } else {
+        options.stroke_color
+    };
+    Drawable {
+        shape: ShapeKind::Text,
+        ops: Vec::new(),
+        sets: Vec::new(),
+        options: *options,
+        text: Some(TextDrawable {
+            text: wrapped,
+            x: base.x + 10.0,
+            y: base.y + base.height / 2.0 - height / 2.0,
+            font_size,
+            font_family: FontFamily::Helvetica,
+            text_align: TextAlign::Center,
+            vertical_align: VerticalAlign::Top,
+            color,
+            width,
+            height,
             line_height: 1.25,
         }),
         image: None,

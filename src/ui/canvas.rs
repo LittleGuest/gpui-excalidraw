@@ -4,7 +4,7 @@ use gpui_kit::*;
 
 use crate::{
     core::{element::Element, scene::Scene},
-    render::shape::{Op, TextDrawable, render_element},
+    render::shape::{Op, TextDrawable, render_element_with_lookup},
 };
 
 fn rgba_hex(r: f64, g: f64, b: f64, a: f64) -> Rgba {
@@ -36,8 +36,9 @@ pub fn paint_elements(
     window: &mut Window,
     cx: &mut App,
 ) {
+    let lookup: HashMap<&str, &Element> = elements.iter().map(|e| (e.id(), e)).collect();
     for element in elements {
-        for d in render_element(element) {
+        for d in render_element_with_lookup(element, &lookup) {
             if let Some(t) = &d.text {
                 paint_text(t, zoom, scroll_x, scroll_y, window, cx);
                 continue;
@@ -564,6 +565,52 @@ pub fn paint_marquee(
     }
 }
 
+/// Draws the lasso trail: a translucent wash over the traced polygon plus a
+/// selection-colored outline, matching upstream's `LassoTrail` styling.
+pub fn paint_lasso(
+    points: &[crate::core::geometry::Point],
+    color: Rgba,
+    zoom: f64,
+    scroll_x: f64,
+    scroll_y: f64,
+    window: &mut Window,
+) {
+    if points.len() < 2 {
+        return;
+    }
+    if points.len() >= 3 {
+        let mut wash = PathBuilder::fill();
+        for (i, p) in points.iter().enumerate() {
+            let x = (scroll_x + p.x * zoom) as f32;
+            let y = (scroll_y + p.y * zoom) as f32;
+            if i == 0 {
+                wash.move_to(point(px(x), px(y)));
+            } else {
+                wash.line_to(point(px(x), px(y)));
+            }
+        }
+        wash.close();
+        if let Ok(path) = wash.build() {
+            window.paint_path(path, color.alpha(0.05));
+        }
+    }
+
+    let mut outline = PathBuilder::stroke(px(1.0));
+    for (i, p) in points.iter().enumerate() {
+        let x = (scroll_x + p.x * zoom) as f32;
+        let y = (scroll_y + p.y * zoom) as f32;
+        if i == 0 {
+            outline.move_to(point(px(x), px(y)));
+        } else {
+            outline.line_to(point(px(x), px(y)));
+        }
+    }
+    outline.close();
+    if let Ok(path) = outline.build() {
+        window.paint_path(path, color);
+    }
+}
+
 pub fn paint_ink(
     points: &[crate::core::geometry::Point],
     stroke_width: f64,
@@ -593,28 +640,73 @@ pub fn paint_ink(
     }
 }
 
+/// Laser trail width, matching upstream's `size: 2` radius.
+const LASER_WIDTH: f32 = 4.0;
+
+/// Draws the laser trail. Every sample carries its remaining lifetime fraction
+/// (1.0 freshly added, 0.0 gone); each segment is stroked at the older
+/// endpoint's width so the trail retracts from its oldest end, mirroring
+/// upstream's per-point size decay.
 pub fn paint_laser(
-    points: &[crate::core::geometry::Point],
+    points: &[(crate::core::geometry::Point, f64)],
     zoom: f64,
     scroll_x: f64,
     scroll_y: f64,
     window: &mut Window,
 ) {
-    if points.len() < 2 {
+    let color = rgb(0xff0000);
+    let coords: Vec<(f32, f32, f64)> = points
+        .iter()
+        .map(|(p, remaining)| {
+            (
+                (scroll_x + p.x * zoom) as f32,
+                (scroll_y + p.y * zoom) as f32,
+                *remaining,
+            )
+        })
+        .collect();
+
+    if coords.len() == 1 {
+        let (x, y, remaining) = coords[0];
+        paint_laser_dot(x, y, remaining, color, window);
         return;
     }
-    let mut builder = PathBuilder::stroke(px(4.0));
-    for (i, p) in points.iter().enumerate() {
-        let x = (scroll_x + p.x * zoom) as f32;
-        let y = (scroll_y + p.y * zoom) as f32;
-        if i == 0 {
-            builder.move_to(point(px(x), px(y)));
-        } else {
-            builder.line_to(point(px(x), px(y)));
+
+    for pair in coords.windows(2) {
+        let (x0, y0, t0) = pair[0];
+        let (x1, y1, t1) = pair[1];
+        let width = (LASER_WIDTH as f64 * t0.min(t1)) as f32;
+        if width < 0.5 {
+            continue;
+        }
+        let mut builder = PathBuilder::stroke(px(width));
+        builder.move_to(point(px(x0), px(y0)));
+        builder.line_to(point(px(x1), px(y1)));
+        if let Ok(path) = builder.build() {
+            window.paint_path(path, color);
         }
     }
+}
+
+fn paint_laser_dot(x: f32, y: f32, remaining: f64, color: Rgba, window: &mut Window) {
+    let radius = LASER_WIDTH as f64 / 2.0 * remaining;
+    if radius < 0.5 {
+        return;
+    }
+    let mut builder = PathBuilder::fill();
+    for i in 0..16 {
+        let theta = i as f64 / 16.0 * std::f64::consts::TAU;
+        let vx = x + (radius * theta.cos()) as f32;
+        let vy = y + (radius * theta.sin()) as f32;
+        if i == 0 {
+            builder.move_to(point(px(vx), px(vy)));
+        } else {
+            builder.line_to(point(px(vx), px(vy)));
+        }
+    }
+    builder.close();
     if let Ok(path) = builder.build() {
-        window.paint_path(path, rgb(0xff0000));
+        window.paint_path(path, color);
     }
 }
 

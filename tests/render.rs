@@ -684,3 +684,29 @@ fn dark_mode_svg_darkens_the_background_and_the_elements() {
         "the sticky note kept its bright yellow fill: {dark}"
     );
 }
+
+#[test]
+fn an_empty_embeddable_draws_its_placeholder_label() {
+    use gpui_excalidraw::core::types::{FontFamily, TextAlign};
+
+    let element = factory::new_embeddable(10.0, 20.0, 400.0, 300.0, &ElementOptions::default());
+    let drawables = render_element(&element);
+    assert_eq!(drawables.len(), 2, "the frame plus its placeholder label");
+
+    let label = drawables[1].text.as_ref().expect("the placeholder label");
+    assert_eq!(label.text, "Empty Web-Embed");
+    assert_eq!(label.font_family, FontFamily::Helvetica);
+    assert_eq!(label.text_align, TextAlign::Center);
+    assert!(label.x >= 10.0 && label.x + label.width <= 410.0);
+    assert!(label.y > 20.0 && label.y + label.height < 320.0);
+}
+
+#[test]
+fn an_embeddable_label_shows_its_link() {
+    let mut element = factory::new_embeddable(0.0, 0.0, 400.0, 300.0, &ElementOptions::default());
+    element.base_mut().link = Some("https://example.com".to_string());
+
+    let drawables = render_element(&element);
+    let label = drawables[1].text.as_ref().expect("the placeholder label");
+    assert_eq!(label.text, "https://example.com");
+}

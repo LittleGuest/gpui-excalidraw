@@ -267,6 +267,26 @@ pub fn translations() -> HashMap<&'static str, HashMap<&'static str, &'static st
             map.extend(strings);
         }
     }
+    for (code, strings) in clear_dialog_strings() {
+        if let Some(map) = all.get_mut(code) {
+            map.extend(strings);
+        }
+    }
+    for (code, strings) in prop_label_strings() {
+        if let Some(map) = all.get_mut(code) {
+            map.extend(strings);
+        }
+    }
+    for (code, strings) in bucket_fill_strings() {
+        if let Some(map) = all.get_mut(code) {
+            map.extend(strings);
+        }
+    }
+    for (code, strings) in mermaid_strings() {
+        if let Some(map) = all.get_mut(code) {
+            map.extend(strings);
+        }
+    }
     all
 }
 
@@ -1189,6 +1209,8 @@ fn en() -> HashMap<&'static str, &'static str> {
     m.insert("fontList.availableFonts", "Available fonts");
     m.insert("fontList.empty", "No fonts found");
     m.insert("quickSearch.placeholder", "Quick search");
+    m.insert("labels.link.empty", "No link is set");
+    m.insert("labels.link.hint", "Type or paste your link here");
     m.insert("elementLink.title", "Link to object");
     m.insert(
         "elementLink.desc",
@@ -1388,6 +1410,8 @@ fn zh_cn() -> HashMap<&'static str, &'static str> {
     m.insert("fontList.availableFonts", "可用字体");
     m.insert("fontList.empty", "未找到字体");
     m.insert("quickSearch.placeholder", "快速搜索");
+    m.insert("labels.link.empty", "未设定链接");
+    m.insert("labels.link.hint", "在此处输入或粘贴您的链接");
     m.insert("elementLink.title", "链接到对象");
     m.insert("elementLink.desc", "点击画布上的形状或粘贴链接。");
     m.insert("buttons.remove", "删除");
@@ -1520,6 +1544,8 @@ fn zh_tw() -> HashMap<&'static str, &'static str> {
     m.insert("fontList.availableFonts", "可用字型");
     m.insert("fontList.empty", "找不到字型");
     m.insert("quickSearch.placeholder", "快速搜尋");
+    m.insert("labels.link.empty", "未設定連結");
+    m.insert("labels.link.hint", "在此輸入或貼上連結");
     m.insert("elementLink.title", "連結至物件");
     m.insert("elementLink.desc", "點擊畫布上的形狀或貼上連結");
     m.insert("buttons.remove", "刪除");
@@ -1671,6 +1697,8 @@ fn ja() -> HashMap<&'static str, &'static str> {
     m.insert("fontList.availableFonts", "利用可能フォント");
     m.insert("fontList.empty", "フォントなし");
     m.insert("quickSearch.placeholder", "クイック検索");
+    m.insert("labels.link.empty", "リンクが設定されていません");
+    m.insert("labels.link.hint", "リンクを入力・貼り付け");
     m.insert("elementLink.title", "オブジェクトにリンク");
     m.insert(
         "elementLink.desc",
@@ -1820,6 +1848,8 @@ fn ko() -> HashMap<&'static str, &'static str> {
     m.insert("fontList.availableFonts", "Available fonts");
     m.insert("fontList.empty", "No fonts found");
     m.insert("quickSearch.placeholder", "Quick search");
+    m.insert("labels.link.empty", "링크를 지정하지 않았습니다");
+    m.insert("labels.link.hint", "여기에 링크를 입력하거나 붙여 넣으세요");
     m.insert("elementLink.title", "객체에 연결");
     m.insert(
         "elementLink.desc",
@@ -1983,6 +2013,8 @@ fn de() -> HashMap<&'static str, &'static str> {
     m.insert("fontList.availableFonts", "Verfügbare Schriftarten");
     m.insert("fontList.empty", "Keine Schriftarten gefunden");
     m.insert("quickSearch.placeholder", "Schnellsuche");
+    m.insert("labels.link.empty", "Kein Link festgelegt");
+    m.insert("labels.link.hint", "Link hier eingeben oder einfügen");
     m.insert("elementLink.title", "Link zum Objekt");
     m.insert(
         "elementLink.desc",
@@ -2143,6 +2175,8 @@ fn fr() -> HashMap<&'static str, &'static str> {
     m.insert("fontList.availableFonts", "Polices disponibles");
     m.insert("fontList.empty", "Aucune police trouvée");
     m.insert("quickSearch.placeholder", "Recherche rapide");
+    m.insert("labels.link.empty", "Aucun lien défini");
+    m.insert("labels.link.hint", "Tapez ou collez votre lien ici");
     m.insert("elementLink.title", "Lien vers un objet");
     m.insert(
         "elementLink.desc",
@@ -2303,6 +2337,8 @@ fn es() -> HashMap<&'static str, &'static str> {
     m.insert("fontList.availableFonts", "Fuentes disponibles");
     m.insert("fontList.empty", "No se han encontrado fuentes");
     m.insert("quickSearch.placeholder", "Búsqueda rápida");
+    m.insert("labels.link.empty", "No se ha establecido un enlace");
+    m.insert("labels.link.hint", "Escribe o pega tu enlace aquí");
     m.insert("elementLink.title", "Enlace al objeto");
     m.insert(
         "elementLink.desc",
@@ -2466,6 +2502,8 @@ fn it() -> HashMap<&'static str, &'static str> {
     m.insert("fontList.availableFonts", "Font disponibili");
     m.insert("fontList.empty", "Nessun font trovato");
     m.insert("quickSearch.placeholder", "Ricerca rapida");
+    m.insert("labels.link.empty", "Nessun collegamento impostato");
+    m.insert("labels.link.hint", "Digita o incolla qui il tuo link");
     m.insert("elementLink.title", "Link all'oggetto");
     m.insert(
         "elementLink.desc",
@@ -2626,6 +2664,8 @@ fn pt_br() -> HashMap<&'static str, &'static str> {
     m.insert("fontList.availableFonts", "Fontes disponíveis");
     m.insert("fontList.empty", "Nenhuma fonte encontrada");
     m.insert("quickSearch.placeholder", "Busca rápida");
+    m.insert("labels.link.empty", "Nenhum link foi definido");
+    m.insert("labels.link.hint", "Digite ou cole o seu link aqui");
     m.insert("elementLink.title", "Links para o objeto");
     m.insert(
         "elementLink.desc",
@@ -2783,6 +2823,8 @@ fn ru() -> HashMap<&'static str, &'static str> {
     m.insert("fontList.availableFonts", "Доступные шрифты");
     m.insert("fontList.empty", "Шрифты не найдены");
     m.insert("quickSearch.placeholder", "Быстрый поиск");
+    m.insert("labels.link.empty", "Ссылка не установлена");
+    m.insert("labels.link.hint", "Введите или вставьте ссылку здесь");
     m.insert("elementLink.title", "Ссылка на объект");
     m.insert(
         "elementLink.desc",
@@ -2986,6 +3028,8 @@ fn ar_sa() -> HashMap<&'static str, &'static str> {
     m.insert("fontList.availableFonts", "الخطوط المتوفرة");
     m.insert("fontList.empty", "لم يتم العثور على خطوط");
     m.insert("quickSearch.placeholder", "بحث سريع");
+    m.insert("labels.link.empty", "لم يتم تعيين رابط");
+    m.insert("labels.link.hint", "اكتب أو الصق الرابط هنا");
     m.insert("elementLink.title", "رابط إلى الكائن");
     m.insert("elementLink.desc", "انقر على شكل على اللوحة أو الصق رابطًا.");
     m.insert("buttons.remove", "إزالة");
@@ -3198,6 +3242,8 @@ fn eu_es() -> HashMap<&'static str, &'static str> {
     m.insert("fontList.availableFonts", "Letra mota erabilgarriak");
     m.insert("fontList.empty", "Ez da letra motarik aurkitu");
     m.insert("quickSearch.placeholder", "Bilaketa azkarra");
+    m.insert("labels.link.empty", "Ez da estekarik ezarri");
+    m.insert("labels.link.hint", "Idatzi edo itsatsi zure eskeka hemen");
     m.insert("elementLink.title", "Estekatu objektura");
     m.insert(
         "elementLink.desc",
@@ -3416,6 +3462,8 @@ fn fa_ir() -> HashMap<&'static str, &'static str> {
     m.insert("fontList.availableFonts", "قلم های در دسترس");
     m.insert("fontList.empty", "قلمی یافت نشد");
     m.insert("quickSearch.placeholder", "جستجو فوری");
+    m.insert("labels.link.empty", "هیچ لینکی ست نشده");
+    m.insert("labels.link.hint", "لینک خود را بنویسید یا جایگذاری کنید");
     m.insert("elementLink.title", "لینک به آیتم");
     m.insert(
         "elementLink.desc",
@@ -3628,6 +3676,8 @@ fn he_il() -> HashMap<&'static str, &'static str> {
     m.insert("fontList.availableFonts", "הפונטים הקיימים");
     m.insert("fontList.empty", "לא נמצאו פונטים");
     m.insert("quickSearch.placeholder", "חיפוש מהיר");
+    m.insert("labels.link.empty", "לא נקבע קישור");
+    m.insert("labels.link.hint", "יש להקליד או להדביק את הקישור שלך כאן");
     m.insert("elementLink.title", "קישור לפריט");
     m.insert(
         "elementLink.desc",
@@ -3840,6 +3890,8 @@ fn id_id() -> HashMap<&'static str, &'static str> {
     m.insert("fontList.availableFonts", "Font yang tersedia");
     m.insert("fontList.empty", "Tidak ada font yang ditemukan");
     m.insert("quickSearch.placeholder", "Pencarian Cepat");
+    m.insert("labels.link.empty", "Tidak ada tautan yang ditetapkan");
+    m.insert("labels.link.hint", "Ketik atau tempel tautan di sini");
     m.insert("elementLink.title", "Taut ke objek");
     m.insert(
         "elementLink.desc",
@@ -4055,6 +4107,8 @@ fn nl_nl() -> HashMap<&'static str, &'static str> {
     m.insert("fontList.availableFonts", "Beschikbare lettertypen");
     m.insert("fontList.empty", "Geen lettertypes gevonden");
     m.insert("quickSearch.placeholder", "Snel Zoeken");
+    m.insert("labels.link.empty", "Er is geen link ingesteld");
+    m.insert("labels.link.hint", "Typ of plak je link hier");
     m.insert("elementLink.title", "Link naar object");
     m.insert(
         "elementLink.desc",
@@ -4270,6 +4324,8 @@ fn pl_pl() -> HashMap<&'static str, &'static str> {
     m.insert("fontList.availableFonts", "Dostępne czcionki");
     m.insert("fontList.empty", "Nie znaleziono czcionek");
     m.insert("quickSearch.placeholder", "Szybkie wyszukiwanie");
+    m.insert("labels.link.empty", "Brakujący link");
+    m.insert("labels.link.hint", "Wpisz lub wklej swój link tutaj");
     m.insert("elementLink.title", "Link do obiektu");
     m.insert(
         "elementLink.desc",
@@ -4497,6 +4553,14 @@ fn pt_pt() -> HashMap<&'static str, &'static str> {
     m.insert("fontList.availableFonts", "Fontes disponíveis");
     m.insert("fontList.empty", "Nenhuma fonte encontrada");
     m.insert("quickSearch.placeholder", "Pesquisa rápida");
+    m.insert(
+        "labels.link.empty",
+        "Não está definida nenhuma hiperligação",
+    );
+    m.insert(
+        "labels.link.hint",
+        "Escreva ou cole a sua hiperligação aqui",
+    );
     m.insert("elementLink.title", "Hiperligação para o objeto");
     m.insert(
         "elementLink.desc",
@@ -4715,6 +4779,11 @@ fn ro_ro() -> HashMap<&'static str, &'static str> {
     m.insert("fontList.availableFonts", "Fonturi disponibile");
     m.insert("fontList.empty", "Niciun font găsit");
     m.insert("quickSearch.placeholder", "Căutare rapidă");
+    m.insert("labels.link.empty", "Nu este setat niciun URL");
+    m.insert(
+        "labels.link.hint",
+        "Tastează-ți sau lipsește-ți linkul aici",
+    );
     m.insert("elementLink.title", "Link către obiect");
     m.insert(
         "elementLink.desc",
@@ -4933,6 +5002,8 @@ fn sk_sk() -> HashMap<&'static str, &'static str> {
     m.insert("fontList.availableFonts", "Dostupné písma");
     m.insert("fontList.empty", "Nenašli sa žiadne písma");
     m.insert("quickSearch.placeholder", "Rýchle vyhľadávanie");
+    m.insert("labels.link.empty", "Nie je nastavený žiaden odkaz");
+    m.insert("labels.link.hint", "Zadajte alebo vložte váš odkaz");
     m.insert("elementLink.title", "Odkaz na objekt");
     m.insert(
         "elementLink.desc",
@@ -5145,6 +5216,11 @@ fn sl_si() -> HashMap<&'static str, &'static str> {
     m.insert("fontList.availableFonts", "Razpoložljive pisave");
     m.insert("fontList.empty", "Ni pisav");
     m.insert("quickSearch.placeholder", "Hitro iskanje");
+    m.insert("labels.link.empty", "Povezava ni nastavljena");
+    m.insert(
+        "labels.link.hint",
+        "Tukaj vnesite ali prilepite svojo povezavo",
+    );
     m.insert("elementLink.title", "Povezava do objekta");
     m.insert(
         "elementLink.desc",
@@ -5360,6 +5436,8 @@ fn sv_se() -> HashMap<&'static str, &'static str> {
     m.insert("fontList.availableFonts", "Tillgängliga typsnitt");
     m.insert("fontList.empty", "Inga typsnitt hittades");
     m.insert("quickSearch.placeholder", "Snabbsök");
+    m.insert("labels.link.empty", "Ingen länk är angiven");
+    m.insert("labels.link.hint", "Skriv eller klistra in din länk här");
     m.insert("elementLink.title", "Länk till objektet");
     m.insert(
         "elementLink.desc",
@@ -5575,6 +5653,11 @@ fn tr_tr() -> HashMap<&'static str, &'static str> {
     m.insert("fontList.availableFonts", "Kullanılabilir yazı tipleri");
     m.insert("fontList.empty", "Yazı tipi bulunamadı");
     m.insert("quickSearch.placeholder", "Hızlı arama");
+    m.insert("labels.link.empty", "Herhangi bir bağlantı oluşturulmadı");
+    m.insert(
+        "labels.link.hint",
+        "Bağlantınızı buraya yazın veya yapıştırın",
+    );
     m.insert("elementLink.title", "Nesneye bağlantıla");
     m.insert(
         "elementLink.desc",
@@ -5793,6 +5876,8 @@ fn uk_ua() -> HashMap<&'static str, &'static str> {
     m.insert("fontList.availableFonts", "Доступні шрифти");
     m.insert("fontList.empty", "Шрифти не знайдено");
     m.insert("quickSearch.placeholder", "Швидкий пошук");
+    m.insert("labels.link.empty", "Посилання відсутнє");
+    m.insert("labels.link.hint", "Введіть або вставте ваше посилання тут");
     m.insert("elementLink.title", "Посилання на об’єкт");
     m.insert(
         "elementLink.desc",
@@ -9594,6 +9679,1211 @@ fn palette_extra_strings() -> HashMap<&'static str, HashMap<&'static str, &'stat
             )
         })
         .collect()
+}
+
+const CLEAR_DIALOG_KEYS: [&str; 2] = ["clearCanvasDialog.title", "alerts.clearReset"];
+
+/// Canvas-reset confirmation strings, taken from upstream's clearCanvasDialog
+/// title and alerts.clearReset message. Kept in a table of its own, matching
+/// the panel tables above.
+static CLEAR_DIALOG: [(&str, [&str; 2]); 25] = [
+    (
+        "en",
+        [
+            "Clear canvas",
+            "This will clear the whole canvas. Are you sure?",
+        ],
+    ),
+    (
+        "id-ID",
+        [
+            "Hapus kanvas",
+            "Ini akan menghapus semua yang ada dikanvas. Apakah kamu yakin ?",
+        ],
+    ),
+    (
+        "de-DE",
+        [
+            "Zeichenfläche löschen",
+            "Dies wird die ganze Zeichenfläche löschen. Bist du dir sicher?",
+        ],
+    ),
+    (
+        "es-ES",
+        [
+            "Borrar lienzo",
+            "Esto limpiará todo el lienzo. ¿Estás seguro?",
+        ],
+    ),
+    (
+        "eu-ES",
+        [
+            "Garbitu oihala",
+            "Honek oihal osoa garbituko du. Ziur zaude?",
+        ],
+    ),
+    (
+        "fr-FR",
+        [
+            "Effacer la zone de dessin",
+            "L'intégralité du canevas va être effacée. Êtes-vous sûr ?",
+        ],
+    ),
+    (
+        "it-IT",
+        [
+            "Svuota la tela",
+            "Questa azione cancellerà l'intera tela. Sei sicuro?",
+        ],
+    ),
+    (
+        "nl-NL",
+        [
+            "Wis canvas",
+            "Dit zal het hele canvas verwijderen. Weet je het zeker?",
+        ],
+    ),
+    (
+        "pl-PL",
+        [
+            "Wyczyść płótno",
+            "To spowoduje usunięcie wszystkiego z dokumentu. Czy chcesz kontynuować?",
+        ],
+    ),
+    (
+        "pt-PT",
+        [
+            "Apagar área de desenho",
+            "Isto irá limpar toda a área de desenho. Tem a certeza?",
+        ],
+    ),
+    (
+        "pt-BR",
+        [
+            "Limpar a tela",
+            "Isto irá limpar toda a tela. Você tem certeza?",
+        ],
+    ),
+    (
+        "ro-RO",
+        [
+            "Ștergere pânză",
+            "Această opțiune va șterge întreaga pânză. Confirmi?",
+        ],
+    ),
+    (
+        "sk-SK",
+        [
+            "Vyčistiť plátno",
+            "Týmto sa vyčistí celé plátno. Ste si istí?",
+        ],
+    ),
+    (
+        "sl-SI",
+        [
+            "Počisti platno",
+            "To bo počistilo celotno platno. Ali ste prepričani?",
+        ],
+    ),
+    (
+        "sv-SE",
+        ["Rensa canvas", "Detta rensar hela canvasen. Är du säker?"],
+    ),
+    (
+        "tr-TR",
+        [
+            "Tuvali temizle",
+            "Tuvalin tamamı temizlenecek. Emin misiniz?",
+        ],
+    ),
+    (
+        "ru-RU",
+        ["Очистить холст", "Это очистит весь холст. Вы уверены?"],
+    ),
+    (
+        "uk-UA",
+        ["Очистити полотно", "Це очистить все полотно. Впевнені?"],
+    ),
+    (
+        "he-IL",
+        ["ניקוי הקנבס", "פעולה זו תנקה את כל לוח הציור. להמשיך?"],
+    ),
+    (
+        "ar-SA",
+        ["مسح اللوحة", "هذا سيُزيل كامل اللوحة. هل أنت متأكد؟"],
+    ),
+    (
+        "fa-IR",
+        ["پاک کردن بوم", "این کار کل صفحه را پاک میکند. آیا مطمئنید؟"],
+    ),
+    (
+        "ja-JP",
+        [
+            "キャンバスを消去",
+            "キャンバス全体を消去します。本当によろしいですか？",
+        ],
+    ),
+    ("zh-CN", ["清除画布", "这将会清除整个画布。您是否要继续?"]),
+    ("zh-TW", ["清除畫布", "這將會清除整個 canvas。你確定嗎？"]),
+    (
+        "ko-KR",
+        [
+            "캔버스 지우기",
+            "모든 작업 내용이 초기화됩니다. 계속하시겠습니까?",
+        ],
+    ),
+];
+
+fn clear_dialog_strings() -> HashMap<&'static str, HashMap<&'static str, &'static str>> {
+    CLEAR_DIALOG
+        .iter()
+        .map(|(code, values)| {
+            (
+                *code,
+                CLEAR_DIALOG_KEYS
+                    .iter()
+                    .copied()
+                    .zip(values.iter().copied())
+                    .collect(),
+            )
+        })
+        .collect()
+}
+
+const PROP_LABEL_KEYS: [&str; 10] = [
+    "labels.fill",
+    "labels.strokeWidth",
+    "labels.strokeStyle",
+    "labels.sloppiness",
+    "labels.opacity",
+    "labels.edges",
+    "labels.arrowheads",
+    "labels.layers",
+    "labels.actions",
+    "labels.align",
+];
+
+/// Group legends shown above the properties-panel rows, taken 1:1 from
+/// upstream's `labels.*` strings for every shipped locale.
+static PROP_LABELS: [(&str, [&str; 10]); 25] = [
+    (
+        "en",
+        [
+            "Fill",
+            "Stroke width",
+            "Stroke style",
+            "Sloppiness",
+            "Opacity",
+            "Edges",
+            "Arrowheads",
+            "Layers",
+            "Actions",
+            "Align",
+        ],
+    ),
+    (
+        "id-ID",
+        [
+            "Isian",
+            "Lebar guratan",
+            "Gaya guratan",
+            "Kecerobohan",
+            "Keburaman",
+            "Tepi",
+            "Mata panah",
+            "Lapisan",
+            "Aksi",
+            "Perataan",
+        ],
+    ),
+    (
+        "de-DE",
+        [
+            "Füllung",
+            "Strichstärke",
+            "Konturstil",
+            "Sauberkeit",
+            "Deckkraft",
+            "Kanten",
+            "Pfeilspitzen",
+            "Ebenen",
+            "Aktionen",
+            "Ausrichten",
+        ],
+    ),
+    (
+        "es-ES",
+        [
+            "Rellenar",
+            "Grosor del trazo",
+            "Estilo del trazo",
+            "Estilo de trazo",
+            "Opacidad",
+            "Bordes",
+            "Puntas de flecha",
+            "Capas",
+            "Acciones",
+            "Alinear",
+        ],
+    ),
+    (
+        "eu-ES",
+        [
+            "Bete",
+            "Marraren zabalera",
+            "Marraren estiloa",
+            "Marraren trazoa",
+            "Opakotasuna",
+            "Ertzak",
+            "Gezi-puntak",
+            "Geruzak",
+            "Ekintzak",
+            "Lerrokatu",
+        ],
+    ),
+    (
+        "fr-FR",
+        [
+            "Remplissage",
+            "Largeur du contour",
+            "Style du trait",
+            "Style de tracé",
+            "Transparence",
+            "Angles",
+            "Extrémités",
+            "Disposition",
+            "Actions",
+            "Alignement",
+        ],
+    ),
+    (
+        "it-IT",
+        [
+            "Riempimento",
+            "Spessore del tratto",
+            "Stile del tratto",
+            "Imprecisione",
+            "Opacità",
+            "Bordi",
+            "Punta della freccia",
+            "Livelli",
+            "Azioni",
+            "Allinea",
+        ],
+    ),
+    (
+        "nl-NL",
+        [
+            "Invulling",
+            "Lijnbreedte",
+            "Lijnstijl",
+            "Slordigheid",
+            "Doorzichtigheid",
+            "Randen",
+            "Pijlpunten",
+            "Lagen",
+            "Acties",
+            "Uitlijnen",
+        ],
+    ),
+    (
+        "pl-PL",
+        [
+            "Wypełnienie",
+            "Szerokość kreski",
+            "Styl kreski",
+            "Styl kreski",
+            "Przezroczystość",
+            "Krawędzie",
+            "Groty",
+            "Warstwy",
+            "Akcje",
+            "Wyrównaj",
+        ],
+    ),
+    (
+        "pt-PT",
+        [
+            "Preenchimento",
+            "Espessura do traço",
+            "Estilo do traço",
+            "Precisão do traço",
+            "Opacidade",
+            "Arestas",
+            "Pontas",
+            "Camadas",
+            "Ações",
+            "Alinhamento",
+        ],
+    ),
+    (
+        "pt-BR",
+        [
+            "Preenchimento",
+            "Espessura do traço",
+            "Estilo do traço",
+            "Precisão do traço",
+            "Opacidade",
+            "Arestas",
+            "Pontas",
+            "Camadas",
+            "Ações",
+            "Alinhamento",
+        ],
+    ),
+    (
+        "ro-RO",
+        [
+            "Umplere",
+            "Lățimea conturului",
+            "Stilul conturului",
+            "Aspectul trasării",
+            "Opacitate",
+            "Margini",
+            "Vârfuri de săgeată",
+            "Straturi",
+            "Acțiuni",
+            "Aliniere",
+        ],
+    ),
+    (
+        "sk-SK",
+        [
+            "Výplň",
+            "Hrúbka obrysu",
+            "Štýl obrysu",
+            "Štylizácia",
+            "Priehľadnosť",
+            "Okraje",
+            "Zakončenie šípky",
+            "Vrstvy",
+            "Akcie",
+            "Zarovnanie",
+        ],
+    ),
+    (
+        "sl-SI",
+        [
+            "Polnilo",
+            "Debelina poteze",
+            "Slog poteze",
+            "Površnost",
+            "Prekrivnost",
+            "Robovi",
+            "Puščice",
+            "Plasti",
+            "Dejanja",
+            "Poravnava",
+        ],
+    ),
+    (
+        "sv-SE",
+        [
+            "Fyllnad",
+            "Linjebredd",
+            "Linjestil",
+            "Slarvighet",
+            "Genomskinlighet",
+            "Kanter",
+            "Pilhuvuden",
+            "Lager",
+            "Åtgärder",
+            "Justera",
+        ],
+    ),
+    (
+        "tr-TR",
+        [
+            "Doldur",
+            "Kontur genişliği",
+            "Kontur stili",
+            "Üstün körülük",
+            "Opaklık",
+            "Kenarlar",
+            "Ok uçları",
+            "Katmanlar",
+            "Eylemler",
+            "Hizala",
+        ],
+    ),
+    (
+        "ru-RU",
+        [
+            "Заливка",
+            "Толщина штриха",
+            "Стиль обводки",
+            "Стиль обводки",
+            "Непрозрачность",
+            "Края",
+            "Стрелка",
+            "Слои",
+            "Действия",
+            "Выровнять",
+        ],
+    ),
+    (
+        "uk-UA",
+        [
+            "Заповнити",
+            "Товщина контуру",
+            "Стиль контуру",
+            "Охайність",
+            "Прозорість",
+            "Краї",
+            "Закінчення стрілки",
+            "Шари",
+            "Дії",
+            "Вирівнювання",
+        ],
+    ),
+    (
+        "he-IL",
+        [
+            "מילוי",
+            "עובי קו מתאר",
+            "סגנון קו המתאר",
+            "רישול",
+            "אטימות",
+            "קצוות",
+            "ראשי חצים",
+            "שכבות",
+            "פעולות",
+            "יישור",
+        ],
+    ),
+    (
+        "ar-SA",
+        [
+            "التعبئة",
+            "سُمك الخط",
+            "نمط الخط",
+            "الإمالة",
+            "الشفافية",
+            "الحواف",
+            "رؤوس الأسهم",
+            "الطبقات",
+            "الإجراءات",
+            "محاذاة",
+        ],
+    ),
+    (
+        "fa-IR",
+        [
+            "رنگ آمیزی",
+            "ضخامت حاشیه",
+            "استایل حاشیه",
+            "دقت",
+            "شفافیت",
+            "لبه ها",
+            "سر پیکان",
+            "لایه ها",
+            "عملیات",
+            "تراز",
+        ],
+    ),
+    (
+        "ja-JP",
+        [
+            "塗りつぶし",
+            "線の太さ",
+            "線の種類",
+            "ばらつき加減",
+            "透明度",
+            "角",
+            "線の終点",
+            "レイヤー",
+            "操作",
+            "配置",
+        ],
+    ),
+    (
+        "zh-CN",
+        [
+            "填充",
+            "描边宽度",
+            "边框样式",
+            "线条风格",
+            "透明度",
+            "边角",
+            "端点",
+            "图层",
+            "操作",
+            "对齐",
+        ],
+    ),
+    (
+        "zh-TW",
+        [
+            "填滿",
+            "筆跡寬度",
+            "筆畫樣式",
+            "線條風格",
+            "透明度",
+            "邊緣",
+            "箭頭",
+            "圖層",
+            "動作",
+            "對齊",
+        ],
+    ),
+    (
+        "ko-KR",
+        [
+            "채우기",
+            "선 굵기",
+            "선",
+            "대충 긋기",
+            "불투명도",
+            "가장자리",
+            "화살촉",
+            "레이어",
+            "동작",
+            "정렬",
+        ],
+    ),
+];
+
+/// Upstream's `labels.background`, shown above the colour row in the bucket
+/// fill panel.
+static PROP_BACKGROUND_LABELS: [(&str, &str); 25] = [
+    ("en", "Background"),
+    ("id-ID", "Latar"),
+    ("de-DE", "Hintergrund"),
+    ("pt-PT", "Fundo"),
+    ("pt-BR", "Fundo"),
+    ("zh-CN", "背景"),
+    ("zh-TW", "背景"),
+    ("ko-KR", "배경색"),
+    ("es-ES", "Fondo"),
+    ("fr-FR", "Arrière-plan"),
+    ("it-IT", "Sfondo"),
+    ("nl-NL", "Achtergrond"),
+    ("pl-PL", "Tło"),
+    ("ru-RU", "Фон"),
+    ("uk-UA", "Тло"),
+    ("sv-SE", "Bakgrund"),
+    ("tr-TR", "Arka plan"),
+    ("he-IL", "רקע"),
+    ("ar-SA", "الخلفية"),
+    ("fa-IR", "پس زمینه"),
+    ("ja-JP", "背景"),
+    ("ro-RO", "Fundal"),
+    ("sk-SK", "Pozadie"),
+    ("sl-SI", "Ozadje"),
+    ("eu-ES", "Atzeko planoa"),
+];
+
+fn prop_label_strings() -> HashMap<&'static str, HashMap<&'static str, &'static str>> {
+    let mut labels: HashMap<&'static str, HashMap<&'static str, &'static str>> = PROP_LABELS
+        .iter()
+        .map(|(code, values)| {
+            (
+                *code,
+                PROP_LABEL_KEYS
+                    .iter()
+                    .copied()
+                    .zip(values.iter().copied())
+                    .collect(),
+            )
+        })
+        .collect();
+    for (code, background) in PROP_BACKGROUND_LABELS {
+        labels
+            .entry(code)
+            .or_default()
+            .insert("labels.background", background);
+    }
+    labels
+}
+
+const BUCKET_FILL_KEYS: [&str; 2] = ["bucketfill.noRegion", "bucketfill.tooComplex"];
+
+/// Bucket-fill failure toasts. Upstream ships translations for only a subset
+/// of locales; the remaining ones fall back to the English text, exactly like
+/// upstream's own i18n lookup does.
+static BUCKET_FILL: [(&str, [&str; 2]); 25] = [
+    (
+        "en",
+        [
+            "Couldn't find an enclosed region to fill here.",
+            "This region is too complex to fill.",
+        ],
+    ),
+    (
+        "id-ID",
+        [
+            "Tidak dapat menemukan area tertutup untuk diisi",
+            "Area ini terlalu rumit untuk diisi",
+        ],
+    ),
+    (
+        "de-DE",
+        [
+            "Couldn't find an enclosed region to fill here.",
+            "This region is too complex to fill.",
+        ],
+    ),
+    (
+        "es-ES",
+        [
+            "Couldn't find an enclosed region to fill here.",
+            "This region is too complex to fill.",
+        ],
+    ),
+    (
+        "eu-ES",
+        [
+            "Couldn't find an enclosed region to fill here.",
+            "This region is too complex to fill.",
+        ],
+    ),
+    (
+        "fr-FR",
+        [
+            "Impossible de trouver une région à remplir ici.",
+            "Cette région est trop complexe à remplir.",
+        ],
+    ),
+    (
+        "it-IT",
+        [
+            "Impossibile trovare una regione racchiusa da riempire qui.",
+            "Questa regione è troppo complessa da riempire.",
+        ],
+    ),
+    (
+        "nl-NL",
+        [
+            "Couldn't find an enclosed region to fill here.",
+            "This region is too complex to fill.",
+        ],
+    ),
+    (
+        "pl-PL",
+        [
+            "Couldn't find an enclosed region to fill here.",
+            "This region is too complex to fill.",
+        ],
+    ),
+    (
+        "pt-PT",
+        [
+            "Couldn't find an enclosed region to fill here.",
+            "This region is too complex to fill.",
+        ],
+    ),
+    (
+        "pt-BR",
+        [
+            "Couldn't find an enclosed region to fill here.",
+            "This region is too complex to fill.",
+        ],
+    ),
+    (
+        "ro-RO",
+        [
+            "Nu s-a putut găsi o regiune închisă pentru a o umple aici.",
+            "Această regiune este prea complexă pentru a fi umplută.",
+        ],
+    ),
+    (
+        "sk-SK",
+        [
+            "Couldn't find an enclosed region to fill here.",
+            "This region is too complex to fill.",
+        ],
+    ),
+    (
+        "sl-SI",
+        [
+            "Ni bilo mogoče najti zaprtega območja za zapolnitev.",
+            "To območje je preveč zapleteno, da bi ga zapolnili.",
+        ],
+    ),
+    (
+        "sv-SE",
+        [
+            "Det gick inte att hitta en sluten region att färglägga här.",
+            "Denna region är för komplex för att färglägga.",
+        ],
+    ),
+    (
+        "tr-TR",
+        [
+            "Couldn't find an enclosed region to fill here.",
+            "This region is too complex to fill.",
+        ],
+    ),
+    (
+        "ru-RU",
+        [
+            "Couldn't find an enclosed region to fill here.",
+            "This region is too complex to fill.",
+        ],
+    ),
+    (
+        "uk-UA",
+        [
+            "Не вдалося знайти замкнену область для заливки.",
+            "Ця область занадто складна для заливки.",
+        ],
+    ),
+    (
+        "he-IL",
+        [
+            "לא נמצא אזור סגור למילוי כאן.",
+            "המילוי של האזור הזה מסובך מכדי לקרות.",
+        ],
+    ),
+    (
+        "ar-SA",
+        [
+            "Couldn't find an enclosed region to fill here.",
+            "This region is too complex to fill.",
+        ],
+    ),
+    (
+        "fa-IR",
+        [
+            "Couldn't find an enclosed region to fill here.",
+            "This region is too complex to fill.",
+        ],
+    ),
+    (
+        "ja-JP",
+        [
+            "Couldn't find an enclosed region to fill here.",
+            "This region is too complex to fill.",
+        ],
+    ),
+    (
+        "zh-CN",
+        [
+            "Couldn't find an enclosed region to fill here.",
+            "This region is too complex to fill.",
+        ],
+    ),
+    (
+        "zh-TW",
+        ["找不到可填滿的封閉區域。", "區域太複雜，無法填充。"],
+    ),
+    (
+        "ko-KR",
+        [
+            "Couldn't find an enclosed region to fill here.",
+            "This region is too complex to fill.",
+        ],
+    ),
+];
+
+fn bucket_fill_strings() -> HashMap<&'static str, HashMap<&'static str, &'static str>> {
+    BUCKET_FILL
+        .iter()
+        .map(|(code, values)| {
+            (
+                *code,
+                BUCKET_FILL_KEYS
+                    .iter()
+                    .copied()
+                    .zip(values.iter().copied())
+                    .collect(),
+            )
+        })
+        .collect()
+}
+
+const MERMAID_KEYS: [&str; 8] = [
+    "mermaid.title",
+    "mermaid.description",
+    "mermaid.button",
+    "mermaid.inputPlaceholder",
+    "mermaid.label",
+    "chat.aiBeta",
+    "chat.errors.mermaidParseError",
+    "chat.inputPlaceholder",
+];
+
+/// Mermaid dialog labels pulled verbatim from upstream Excalidraw locales.
+/// Locales that ship no translation for a string fall back to English, which
+/// is exactly what upstream's own i18n lookup does.
+static MERMAID: [(&str, [&str; 8]); 25] = [
+    (
+        "en",
+        [
+            "Mermaid to Excalidraw",
+            "Currently only <flowchartLink>Flowchart</flowchartLink>, <sequenceLink>Sequence</sequenceLink>, <classLink>Class</classLink>, and <erdLink>Entity Relationship</erdLink> Diagrams are supported. The other types will be rendered as image in Excalidraw.",
+            "Insert",
+            "Write Mermaid diagram definition here...",
+            "Mermaid",
+            "AI Beta",
+            "Mermaid syntax error",
+            "Start typing your diagram idea here... ({{shortcut}} for new line)",
+        ],
+    ),
+    (
+        "id-ID",
+        [
+            "Mermaid menjadi Excalidraw",
+            "Saat ini hanya Diagram  Diagram Alir  ,  Urutan  ,  Kelas  , dan  Hubungan Entitas  yang didukung. Jenis lainnya akan dirender sebagai gambar di Excalidraw .",
+            "Sisipkan",
+            "Tulis definisi diagram Mermaid di sini...",
+            "Mermaid",
+            "AI Beta",
+            "Kesalahan sintaks Mermaid",
+            "Mulai ketik ide diagram Anda di sini... ( {{shortcut}} untuk baris baru)",
+        ],
+    ),
+    (
+        "de-DE",
+        [
+            "Mermaid zu Excalidraw",
+            "Derzeit werden nur <flowchartLink>Flussdiagramme</flowchartLink>, <sequenceLink>Sequenzdiagramme</sequenceLink>, <classLink>Klassendiagramme</classLink> und <erdLink>Entity-Relationship-Diagramme</erdLink> unterstützt. Die anderen Typen werden als Bild in Excalidraw dargestellt.",
+            "Einfügen",
+            "Mermaid-Diagrammdefinition hier eingeben...",
+            "Mermaid",
+            "KI Beta",
+            "Mermaid-Syntaxfehler",
+            "Beschreibe hier deine Diagrammidee... ({{shortcut}} für neue Zeile)",
+        ],
+    ),
+    (
+        "es-ES",
+        [
+            "Mermaid a Excalidraw",
+            "Actualmente solo se admiten los diagramas de <flowchartLink>Flujo</flowchartLink>, <sequenceLink>Secuencia</sequenceLink>, <classLink>Clase</classLink> y <erdLink>Entidad-Relación</erdLink>. Los demás tipos se renderizarán como imagen en Excalidraw.",
+            "Insertar",
+            "Escribe aquí la definición del diagrama Mermaid...",
+            "Mermaid",
+            "Beta de IA",
+            "Error de sintaxis de Mermaid",
+            "Empieza a escribir tu idea de diagrama aquí... ({{shortcut}} para una nueva línea)",
+        ],
+    ),
+    (
+        "eu-ES",
+        [
+            "Mermaid-etik Excalidraw-ra",
+            "Momentu honetan <flowchartLink>Fluxu-diagrama</flowchartLink>, <sequenceLink>Sekuentzia</sequenceLink>, <classLink>Klasea</classLink> eta <erdLink>Entitate-erlazioa</erdLink> Diagramak onartzen dira. Beste motak irudi gisa errendatuko dira Excalidrawn.",
+            "Txertatu",
+            "Idatzi Mermaid diagramaren definizioa hemen...",
+            "Mermaid",
+            "AA Beta",
+            "Mermaid sintaxi errorea",
+            "Hasi idazten hemen zure diagramaren ideia... ({{shortcut}} lerro berrira joateko)",
+        ],
+    ),
+    (
+        "fr-FR",
+        [
+            "De Mermaid à Excalidraw",
+            "Actuellement seulement <flowchartLink>Flowchart</flowchartLink>, <sequenceLink>Séquence</sequenceLink>, Les diagrammes <classLink>Classe</classLink>et <erdLink>Entity Relationship</erdLink> sont pris en charge. Les autres types seront rendus en tant qu'image dans Excalidraw.",
+            "Insérer",
+            "Écrivez la définition du diagramme de Mermaid ici...",
+            "Mermaid",
+            "Bêta IA",
+            "Erreur de syntaxe Mermaid",
+            "Commencez à taper votre idée de diagramme ici... ({{shortcut}} pour une nouvelle ligne)",
+        ],
+    ),
+    (
+        "it-IT",
+        [
+            "Da Mermaid a Excalidraw",
+            "Attualmente sono supportati solo i diagrammi di <flowchartLink>Flusso</flowchartLink>, <sequenceLink>Sequenza</sequenceLink>, <classLink>Classe</classLink> e <erdLink>Relazione tra entità</erdLink>. Gli altri tipi verranno visualizzati come immagini in Excalidraw.",
+            "Inserisci",
+            "Scrivi qui la definizione del diagramma Mermaid...",
+            "Mermaid",
+            "IA Beta",
+            "Errore di sintassi Mermaid",
+            "Inizia a digitare qui la tua idea per il diagramma... ({{shortcut}} per una nuova riga)",
+        ],
+    ),
+    (
+        "nl-NL",
+        [
+            "Mermaid naar Excalidraw",
+            "Momenteel worden alleen <flowchartLink>Stroomdiagram</flowchartLink>, <sequenceLink>Volgordediagram</sequenceLink>, <classLink>Klasse</classLink>, en <erdLink>Entiteitsrelatie</erdLink>diagrammen ondersteund. De andere typen worden weergegeven als afbeelding in Excalidraw.",
+            "Invoegen",
+            "Noteer Mermaid diagram omschrijving hier...",
+            "Mermaid",
+            "AI Beta",
+            "Mermaid syntax fout",
+            "Begin je diagram idee hier in te typen... ({{shortcut}} voor een nieuwe lijn)",
+        ],
+    ),
+    (
+        "pl-PL",
+        [
+            "Konwertuj diagram Mermaid do Excalidraw",
+            "Currently only <flowchartLink>Flowchart</flowchartLink>, <sequenceLink>Sequence</sequenceLink>, <classLink>Class</classLink>, and <erdLink>Entity Relationship</erdLink> Diagrams are supported. The other types will be rendered as image in Excalidraw.",
+            "Wstaw",
+            "Write Mermaid diagram definition here...",
+            "Mermaid",
+            "AI Beta",
+            "Mermaid syntax error",
+            "Start typing your diagram idea here... ({{shortcut}} for new line)",
+        ],
+    ),
+    (
+        "pt-PT",
+        [
+            "Mermaid para Excalidraw",
+            "Atualmente apenas podem ser convertidos diagramas dos seguintes tipos: <flowchartLink>Fluxograma</flowchartLink>, <sequenceLink>Sequência, </sequenceLink>, <classLink>Classe</classLink> e <erdLink>Relação de Entidades</erdLink>. Os restantes tipos surgirão em forma de imagem.",
+            "Inserir",
+            "Introduza aqui o seu código Mermaid…",
+            "Mermaid",
+            "IA (Experimental)",
+            "Erro de sintaxe Mermaid",
+            "Escreva aqui a sua ideia para um diagrama... (prima {{shortcut}} para passar para a linha seguinte)",
+        ],
+    ),
+    (
+        "pt-BR",
+        [
+            "Mermaid para Excalidraw",
+            "Atualmente, apenas <flowchartLink>fluxogramas</flowchartLink>, <sequenceLink>sequências</sequenceLink>, <classLink>classes</classLink> e <erdLink>diagramas de relacionamento de entidades</erdLink> são suportados. Outros tipos serão mostrados como imagens no Excalidraw.",
+            "Inserir",
+            "Escreva definição de diagrama Mermaid aqui...",
+            "Mermaid",
+            "IA Beta",
+            "Erro de sintaxe Mermaid",
+            "Comece a digitar sua ideia de diagrama aqui... ({{shortcut}} para uma nova linha)",
+        ],
+    ),
+    (
+        "ro-RO",
+        [
+            "Mermaid la Excalidraw",
+            "În prezent, numai <flowchartLink>schemele logice</flowchartLink>, <sequenceLink>diagramele de secvență</sequenceLink>, <classLink>diagramele de clasă</classLink> și <erdLink>diagramele entitate-asociere</erdLink> sunt acceptate. Celelalte tipuri vor fi redate ca imagine în Excalidraw.",
+            "Introducere",
+            "Scrie definiţia diagramei Mermaid aici...",
+            "Mermaid",
+            "Beta IA",
+            "Eroare de sintaxă Mermaid",
+            "Începe să îți introduci ideea de diagramă aici... ({{shortcut}} pentru linia nouă)",
+        ],
+    ),
+    (
+        "sk-SK",
+        [
+            "Mermaid do Excalidraw",
+            "Aktuálne sú podporované iba <flowchartLink>vývojové diagramy</flowchartLink>, <sequenceLink>sekvenčné diagramy</sequenceLink>, <classLink>diagramy tried</classLink> a <erdLink>vzťahové diagramy</erdLink>. Ostatné typy budú v Excalidraw vykreslené ako obrázky.",
+            "Vložiť",
+            "Sem napíšte definíciu Mermaid diagramu...",
+            "Mermaid",
+            "AI beta",
+            "Chyba syntax Mermaid",
+            "Sem opíšte váš diagram... ({{shortcut}} pre nový riadok)",
+        ],
+    ),
+    (
+        "sl-SI",
+        [
+            "Mermaid v Excalidraw",
+            "Trenutno so podprti samo diagrami <flowchartLink>Diagram poteka</flowchartLink>, <sequenceLink>Zaporedje</sequenceLink>, <classLink>Razred</classLink> in <erdLink>Diagrami entitet in razmerij</erdLink>. Druge vrste bodo v programu Excalidraw upodobljene kot slike.",
+            "Vstavi",
+            "Tukaj napišite definicijo diagrama Mermaid...",
+            "Mermaid",
+            "Beta umetne inteligence",
+            "Sintaktična napaka Mermaid",
+            "Začnite tipkati svojo idejo za diagram tukaj... ({{shortcut}} za novo vrstico)",
+        ],
+    ),
+    (
+        "sv-SE",
+        [
+            "Mermaid till Excalidraw",
+            "För närvarande stöds endast <flowchartLink>Flödesdiagram</flowchartLink>, <sequenceLink> Sekvensdiagram</sequenceLink>, <classLink>Klassdiagram</classLink> och <erdLink>Entitetsrelationsdiagram</erdLink>. De andra typerna kommer att återges som bild i Excalidraw.",
+            "Infoga",
+            "Skriv Mermaid-diagramdefinitionen här...",
+            "Mermaid",
+            "AI-beta",
+            "Mermaid syntax fel",
+            "Börja skriva din diagramidé här... ({{shortcut}} för ny rad)",
+        ],
+    ),
+    (
+        "tr-TR",
+        [
+            "Mermaid'den Excalidraw'a",
+            "Şu anda yalnızca <flowchartLink>Akış şeması</flowchartLink>, <sequenceLink> Dizi, </sequenceLink>, <classLink>Sınıf </classLink> ve <erdLink> Varlık ilişkileri</erdLink> Diyagramları desteklenmektedir. Diğer türler, Excalidraw'da görsel olarak çizilecektir.",
+            "Ekle",
+            "\"Mermaid diyagram tanımını buraya yazın...",
+            "Mermaid",
+            "YZ Beta",
+            "Mermaid sözdizim hatası",
+            "Diyagram fikrinizi buraya yazmaya başlayın... (Yeni satır için {{shortcut}})",
+        ],
+    ),
+    (
+        "ru-RU",
+        [
+            "Из Mermaid в Excalidraw",
+            "В настоящее время поддерживаются только <flowchartLink>блок-схемы</flowchartLink>, <sequenceLink>диаграммы последовательности</sequenceLink>, <classLink>диаграммы классов</classLink> и <erdLink>диаграммы взаимоотношений сущностей</erdLink>. Другие типы будут отображаться в виде изображения в Excalidraw.",
+            "Вставить",
+            "Напишите здесь определение диаграммы Mermaid...",
+            "Mermaid",
+            "ИИ-бета",
+            "Синтаксическая ошибка Mermaid",
+            "Начните вводить сюда идею диаграммы... ({{shortcut}} для новой строки)",
+        ],
+    ),
+    (
+        "uk-UA",
+        [
+            "Mermaid у Excalidraw",
+            "Наразі підтримуються лише діаграми типів <flowchartLink>Flowchart</flowchartLink>, <sequenceLink>Sequence</sequenceLink>, <classLink>Class</classLink> та <erdLink>Entity Relationship</erdLink>. Інші типи будуть показані в Excalidraw як зображення.",
+            "Вставити",
+            "Напишіть визначення діаграми Mermaid тут...",
+            "Mermaid",
+            "AI бета-версія",
+            "Помилка синтаксису Mermaid",
+            "Почніть описувати ідею діаграми... ({{shortcut}} для нового рядка)",
+        ],
+    ),
+    (
+        "he-IL",
+        [
+            "Mermaid ל־Excalidraw",
+            "נכון לעכשיו, רק דיאגרמות <flowchartLink>Flowchart</flowchartLink>, <sequenceLink>Sequence</sequenceLink>, <classLink>Class</classLink> ו-<erdLink>Entity Relationship</erdLink> נתמכות. שאר הסוגים יוצגו כתמונה ב-Excalidraw.",
+            "הוספה",
+            "נא לכתוב כאן הגדרת תרשים ל־Mermaid...",
+            "Mermaid",
+            "AI Beta",
+            "שגיאת תחביר Mermaid",
+            "התחל להקליד את רעיון הדיאגרמה שלך כאן... ({{shortcut}} לשורה חדשה)",
+        ],
+    ),
+    (
+        "ar-SA",
+        [
+            "Mermaid إلى Excalidraw",
+            "Currently only <flowchartLink>Flowchart</flowchartLink>, <sequenceLink>Sequence</sequenceLink>, <classLink>Class</classLink>, and <erdLink>Entity Relationship</erdLink> Diagrams are supported. The other types will be rendered as image in Excalidraw.",
+            "إدراج",
+            "اكتب تعريف الرسم البياني لـ Mermaid هنا...",
+            "Mermaid",
+            "الذكاء الاصطناعي تجريبي",
+            "Mermaid syntax error",
+            "ابدأ كتابة فكرة الرسم البياني هنا... ({{shortcut}} للسطر الجديد)",
+        ],
+    ),
+    (
+        "fa-IR",
+        [
+            "مرمید به excalidraw",
+            "Currently only <flowchartLink>Flowchart</flowchartLink>, <sequenceLink>Sequence</sequenceLink>, <classLink>Class</classLink>, and <erdLink>Entity Relationship</erdLink> Diagrams are supported. The other types will be rendered as image in Excalidraw.",
+            "درج",
+            "Write Mermaid diagram definition here...",
+            "Mermaid",
+            "AI Beta",
+            "Mermaid syntax error",
+            "Start typing your diagram idea here... ({{shortcut}} for new line)",
+        ],
+    ),
+    (
+        "ja-JP",
+        [
+            "Mermaid を Excalidraw に変換",
+            "Currently only <flowchartLink>Flowchart</flowchartLink>, <sequenceLink>Sequence</sequenceLink>, <classLink>Class</classLink>, and <erdLink>Entity Relationship</erdLink> Diagrams are supported. The other types will be rendered as image in Excalidraw.",
+            "挿入",
+            "Mermaid のダイアグラム定義をここに入力...",
+            "Mermaid",
+            "AI ベータ版",
+            "Mermaid構文エラー",
+            "ダイアグラムのアイデアを入力... ({{shortcut}} で改行)",
+        ],
+    ),
+    (
+        "zh-CN",
+        [
+            "Mermaid 至 Excalidraw",
+            "目前仅支持<flowchartLink>流程图</flowchartLink>、<sequenceLink>序列图</sequenceLink>、<classLink>类图</classLink>和<erdLink>实体关系（ER）图</erdLink>。其他类型在 Excalidraw 中将以图像呈现。",
+            "插入",
+            "在此处输入 Mermaid 图定义……",
+            "Mermaid",
+            "AI 测试版",
+            "Mermaid 语法错误",
+            "在此处描述你想要的图表……（按{{shortcut}}换行）",
+        ],
+    ),
+    (
+        "zh-TW",
+        [
+            "Mermaid 至 Excalidraw",
+            "目前僅支援 <flowchartLink>Flowchart</flowchartLink> 、 <sequenceLink>Sequence</sequenceLink> 及 <classLink>Class </classLink> 圖表。其餘檔案類型在 Excalidraw 將會以圖像呈現。",
+            "插入",
+            "在這裡編寫 Mermaid 定義...",
+            "Mermaid",
+            "AI Beta 版",
+            "Mermaid 語法錯誤",
+            "在這裡開始輸入你的圖表構想...（{{shortcut}} 換行）",
+        ],
+    ),
+    (
+        "ko-KR",
+        [
+            "Mermaid to Excalidraw",
+            "현재 <flowchartLink>순서도</flowchartLink>, <sequenceLink>시퀀스</sequenceLink>, <classLink>클래스 구조</classLink>, <erdLink>개체-관계 다이어그램</erdLink> 다이어그램만 지원됩니다. 그 외 유형은 Excalidraw에서 이미지로 렌더링됩니다.",
+            "Insert",
+            "Write Mermaid diagram definition here...",
+            "Mermaid",
+            "AI Beta",
+            "Mermaid syntax error",
+            "Start typing your diagram idea here... ({{shortcut}} for new line)",
+        ],
+    ),
+];
+
+/// Upstream's `keys.enter` label, used by the Mermaid dialog shortcut hint.
+/// Locales that ship no translation fall back to English, like upstream.
+const KEYS_ENTER: [(&str, &str); 25] = [
+    ("en", "Enter"),
+    ("id-ID", "Enter"),
+    ("de-DE", "Eingabe"),
+    ("es-ES", "Enter"),
+    ("eu-ES", "Sartu"),
+    ("fr-FR", "Entrée"),
+    ("it-IT", "Invio"),
+    ("nl-NL", "Enter"),
+    ("pl-PL", "Enter"),
+    ("pt-PT", "Enter"),
+    ("pt-BR", "Enter"),
+    ("ro-RO", "Enter"),
+    ("sk-SK", "Enter"),
+    ("sl-SI", "Enter"),
+    ("sv-SE", "Enter"),
+    ("tr-TR", "Enter"),
+    ("ru-RU", "Enter"),
+    ("uk-UA", "Enter"),
+    ("he-IL", "Enter"),
+    ("ar-SA", "Enter"),
+    ("fa-IR", "Enter"),
+    ("ja-JP", "Enter"),
+    ("zh-CN", "回车键"),
+    ("zh-TW", "Enter"),
+    ("ko-KR", "Enter"),
+];
+
+fn mermaid_strings() -> HashMap<&'static str, HashMap<&'static str, &'static str>> {
+    let mut all: HashMap<&'static str, HashMap<&'static str, &'static str>> = MERMAID
+        .iter()
+        .map(|(code, values)| {
+            (
+                *code,
+                MERMAID_KEYS
+                    .iter()
+                    .copied()
+                    .zip(values.iter().copied())
+                    .collect(),
+            )
+        })
+        .collect();
+    for (code, value) in KEYS_ENTER {
+        if let Some(map) = all.get_mut(code) {
+            map.insert("keys.enter", value);
+        }
+    }
+    all
 }
 
 #[cfg(test)]

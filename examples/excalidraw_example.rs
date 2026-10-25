@@ -10,6 +10,7 @@ fn main() {
             gpui_kit::open_window(WindowOptions::default(), cx, |_, cx| {
                 cx.new(|_| {
                     let mut editor = gpui_excalidraw::Editor::new();
+                    editor.set_language(gpui_excalidraw::Language::ZhCn);
                     match std::env::var("EXCALIDRAW_UI_STATE").as_deref() {
                         Ok("scene") => editor.add_demo_scene(),
                         Ok("menu") => editor.set_menu_open(true),

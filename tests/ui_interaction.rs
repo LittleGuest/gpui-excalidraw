@@ -253,6 +253,65 @@ fn marquee_selects_everything_it_touches() {
 }
 
 #[test]
+fn lasso_selects_only_fully_enclosed_shapes() {
+    let mut e = Editor::new();
+    e.document.scene.add(rect("inside", 0.0, 0.0, 50.0, 50.0));
+    e.document
+        .scene
+        .add(rect("outside", 200.0, 200.0, 50.0, 50.0));
+    e.set_tool(Tool::Lasso);
+    e.on_canvas_mouse_down(-20.0, -20.0, plain(), 1);
+    e.on_canvas_mouse_move(80.0, -20.0, plain());
+    e.on_canvas_mouse_move(80.0, 80.0, plain());
+    e.on_canvas_mouse_move(-20.0, 80.0, plain());
+    assert_eq!(
+        e.document.selected.len(),
+        1,
+        "only the fully enclosed shape should be selected"
+    );
+    assert!(e.document.selected.contains("inside"));
+    e.on_canvas_mouse_up(-20.0, 80.0, plain());
+    assert_eq!(
+        e.document.selected.len(),
+        1,
+        "releasing keeps the selection"
+    );
+    assert_eq!(e.document.tool, Tool::Lasso, "the tool stays active");
+}
+
+#[test]
+fn lasso_ignores_partially_covered_shapes() {
+    let mut e = Editor::new();
+    e.document
+        .scene
+        .add(rect("straddle", 30.0, 0.0, 50.0, 50.0));
+    e.set_tool(Tool::Lasso);
+    e.on_canvas_mouse_down(-20.0, -20.0, plain(), 1);
+    e.on_canvas_mouse_move(60.0, -20.0, plain());
+    e.on_canvas_mouse_move(60.0, 60.0, plain());
+    e.on_canvas_mouse_move(-20.0, 60.0, plain());
+    assert!(
+        e.document.selected.is_empty(),
+        "a shape the path crosses must not be selected"
+    );
+    e.on_canvas_mouse_up(-20.0, 60.0, plain());
+}
+
+#[test]
+fn lasso_press_on_the_selection_drags_it() {
+    let mut e = Editor::new();
+    e.document.scene.add(rect("a", 0.0, 0.0, 50.0, 50.0));
+    e.set_tool(Tool::Lasso);
+    e.document.select("a");
+    e.on_canvas_mouse_down(25.0, 25.0, plain(), 1);
+    e.on_canvas_mouse_move(45.0, 25.0, plain());
+    e.on_canvas_mouse_up(45.0, 25.0, plain());
+    let base = e.document.scene.get("a").unwrap().base();
+    assert_eq!(base.x, 20.0, "the selected shape should follow the drag");
+    assert!(e.document.selected.contains("a"));
+}
+
+#[test]
 fn keyboard_copy_paste_roundtrip() {
     let mut e = Editor::new();
     e.document.scene.add(rect("a", 0.0, 0.0, 10.0, 10.0));

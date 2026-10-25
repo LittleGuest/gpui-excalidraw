@@ -183,6 +183,12 @@ pub fn new_embeddable(x: f64, y: f64, w: f64, h: f64, options: &ElementOptions) 
     base.width = w;
     base.height = h;
     apply_options(&mut base, options);
+    // Upstream defaults `currentItemRoundness` to "round" and switches
+    // embeddables to the adaptive radius, so a fresh frame has rounded corners.
+    base.roundness = Some(Roundness {
+        kind: RoundnessType::AdaptiveRadius,
+        value: None,
+    });
     Element::Embeddable(EmbeddableElement { base })
 }
 

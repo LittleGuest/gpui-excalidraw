@@ -210,6 +210,25 @@ pub fn sync_container_text(scene: &mut Scene) {
     }
 
     for (id, cid, font_size, line_height, text) in jobs {
+        if let Some(points) = scene.get(&cid).and_then(linear_points) {
+            // Arrow labels sit at the path midpoint like upstream's bound text
+            // and keep their intrinsic size instead of filling the container.
+            let Some(mid) = path_midpoint(&points) else {
+                continue;
+            };
+            let width = crate::text::text_width(&text, font_size);
+            let height = crate::text::text_height(&text, font_size, line_height);
+            if let Some(Element::Text(t)) = scene.get_mut(&id) {
+                t.base.x = mid.x - width / 2.0;
+                t.base.y = mid.y - height / 2.0;
+                t.base.width = width;
+                t.base.height = height;
+                t.text_align = crate::types::TextAlign::Center;
+                t.vertical_align = crate::types::VerticalAlign::Middle;
+            }
+            continue;
+        }
+
         let Some(bounds) = scene.get(&cid).map(element_bounds) else {
             continue;
         };
@@ -230,6 +249,45 @@ pub fn sync_container_text(scene: &mut Scene) {
             t.vertical_align = crate::types::VerticalAlign::Middle;
         }
     }
+}
+
+fn linear_points(element: &Element) -> Option<Vec<Point>> {
+    match element {
+        Element::Arrow(a) => Some(a.linear.points.clone()),
+        Element::Line(l) => Some(l.linear.points.clone()),
+        _ => None,
+    }
+}
+
+/// Point half way along a polyline, matching upstream's
+/// `getPointAtPathParameter(element, 0.5)` used to place arrow labels.
+fn path_midpoint(points: &[Point]) -> Option<Point> {
+    if points.len() < 2 {
+        return points.first().copied();
+    }
+    let total: f64 = points
+        .windows(2)
+        .map(|pair| pair[0].distance(pair[1]))
+        .sum();
+    if total <= 1e-9 {
+        return points.first().copied();
+    }
+    let target = total / 2.0;
+    let mut walked = 0.0;
+    for pair in points.windows(2) {
+        let (a, b) = (pair[0], pair[1]);
+        let len = a.distance(b);
+        if walked + len >= target {
+            let t = if len > 1e-9 {
+                (target - walked) / len
+            } else {
+                0.0
+            };
+            return Some(a.lerp(b, t));
+        }
+        walked += len;
+    }
+    points.last().copied()
 }
 
 pub fn refresh_derived(scene: &mut Scene) {

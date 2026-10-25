@@ -11,10 +11,11 @@ use crate::{
         factory::*,
         geometry::Point,
         scene::{AppState, Scene},
-        types::{FontFamily, Theme},
+        types::{FontFamily, StrokeStyle, Theme},
     },
     design::{Tokens, size},
     i18n::{I18n, Language},
+    render::bucket_fill::BucketFillError,
     state::{Document, DragMode, History, ResizeHandle, Tool, screen_to_world, selection_bounds},
 };
 
@@ -23,6 +24,32 @@ const CLICK_DEFAULT_SIZE: f64 = 100.0;
 const CLICK_THRESHOLD: f64 = 3.0;
 
 const PASTE_LINE_GAP: f64 = 10.0;
+
+/// Lifetime of a laser trail point, matching upstream's `DECAY_TIME`.
+const LASER_LIFETIME: std::time::Duration = std::time::Duration::from_millis(1000);
+
+/// Repaint cadence while a laser trail decays.
+const LASER_FRAME: std::time::Duration = std::time::Duration::from_millis(16);
+
+/// One sample of the laser pointer trail, aged so the oldest points fade out
+/// first instead of the whole trail disappearing at once.
+#[derive(Clone, Copy)]
+struct LaserPoint {
+    point: Point,
+    born: std::time::Instant,
+}
+
+fn laser_trail_at(points: &[LaserPoint], now: std::time::Instant) -> Vec<(Point, f64)> {
+    let lifetime = LASER_LIFETIME.as_secs_f64();
+    points
+        .iter()
+        .filter_map(|sample| {
+            let age = now.saturating_duration_since(sample.born).as_secs_f64();
+            let remaining = 1.0 - age / lifetime;
+            (remaining > 0.0).then_some((sample.point, remaining.min(1.0)))
+        })
+        .collect()
+}
 
 pub(crate) type Handler<E> = Box<dyn Fn(&E, &mut Window, &mut App)>;
 
@@ -46,10 +73,20 @@ pub struct Editor {
     replace_on_type: bool,
     marquee_start: Option<Point>,
     marquee_current: Option<Point>,
-    laser_points: Vec<Point>,
+    /// Points traced by the lasso tool while the pointer is down.
+    lasso_path: Vec<Point>,
+    lasso_keep_selection: bool,
+    /// Selection kept when the lasso started with Shift held.
+    lasso_base_selection: Vec<String>,
+    laser_points: Vec<LaserPoint>,
+    laser_active: bool,
+    laser_fading: bool,
     erasing: bool,
 
     pending_points: Vec<Point>,
+
+    /// Scene point armed by a bucket-fill pointer down, committed on pointer up.
+    pending_bucket_fill: Option<Point>,
 
     cursor_world: Option<Point>,
 
@@ -113,6 +150,7 @@ pub struct Editor {
 
     pending_scene_open: bool,
 
+    show_clear_dialog: bool,
     show_save_dialog: bool,
     pending_save_dialog: bool,
     project_name: String,
@@ -139,7 +177,22 @@ pub struct Editor {
     /// Rasterized snapshot of the scene shown in the export dialog preview.
     export_preview: Option<Arc<RenderImage>>,
 
+    show_mermaid_dialog: bool,
+    mermaid_tab: MermaidTab,
+    mermaid_text: String,
+    /// Caret position inside `mermaid_text`, kept on a `char` boundary.
+    mermaid_caret: usize,
+    mermaid_anchor: usize,
+    /// Elements rebuilt from `mermaid_text` and drawn in the preview pane.
+    mermaid_preview: Vec<Element>,
+    mermaid_error: Option<String>,
+
     color_popup: Option<ColorTarget>,
+
+    /// The inner span of the properties panel's `changeOpacity` row, recorded
+    /// while painting. Pointer positions are mapped onto this span to turn a
+    /// click or drag into a 0..100 value.
+    opacity_track_bounds: Option<gpui_kit::Bounds<Pixels>>,
 
     shade_stroke: usize,
     shade_background: usize,
@@ -151,6 +204,10 @@ pub struct Editor {
     font_query: String,
 
     show_link_dialog: bool,
+    /// Whether the link popup shows its input (`editor`) or the read-only
+    /// summary with the pencil button (`info`), mirroring upstream's
+    /// `showHyperlinkPopup`.
+    link_editing: bool,
     link_input: String,
 }
 
@@ -175,9 +232,15 @@ impl Editor {
             replace_on_type: false,
             marquee_start: None,
             marquee_current: None,
+            lasso_path: Vec::new(),
+            lasso_keep_selection: false,
+            lasso_base_selection: Vec::new(),
             laser_points: Vec::new(),
+            laser_active: false,
+            laser_fading: false,
             erasing: false,
             pending_points: Vec::new(),
+            pending_bucket_fill: None,
             cursor_world: None,
             cursor_mods: Modifiers::default(),
             cursor_screen: (0.0, 0.0),
@@ -213,6 +276,7 @@ impl Editor {
             image_sources: HashMap::new(),
             pending_image_pick: false,
             pending_scene_open: false,
+            show_clear_dialog: false,
             show_save_dialog: false,
             pending_save_dialog: false,
             project_name: String::new(),
@@ -229,7 +293,15 @@ impl Editor {
             export_embed_scene: false,
             export_only_selected: false,
             export_preview: None,
+            show_mermaid_dialog: false,
+            mermaid_tab: MermaidTab::Mermaid,
+            mermaid_text: String::new(),
+            mermaid_caret: 0,
+            mermaid_anchor: 0,
+            mermaid_preview: Vec::new(),
+            mermaid_error: None,
             color_popup: None,
+            opacity_track_bounds: None,
             shade_stroke: crate::theme::DEFAULT_STROKE_SHADE,
             shade_background: crate::theme::DEFAULT_BACKGROUND_SHADE,
             hex_buffer: String::new(),
@@ -237,6 +309,7 @@ impl Editor {
             font_popup: false,
             font_query: String::new(),
             show_link_dialog: false,
+            link_editing: false,
             link_input: String::new(),
         }
     }
@@ -253,7 +326,17 @@ impl Editor {
         self.current_points.clear();
         self.drag_mode = None;
         self.marquee_start = None;
+        self.lasso_path.clear();
+        self.lasso_base_selection.clear();
+        self.lasso_keep_selection = false;
         self.laser_points.clear();
+        self.laser_active = false;
+        self.pending_bucket_fill = None;
+        if tool == Tool::BucketFill {
+            // The bucket panel is the background picker; a lingering selection
+            // would show the element style panel instead.
+            self.document.clear_selection();
+        }
         if tool != Tool::Text {
             self.commit_text_edit();
         }
@@ -294,7 +377,12 @@ impl Editor {
         self.resize_origin = None;
         self.marquee_start = None;
         self.marquee_current = None;
+        self.lasso_path.clear();
+        self.lasso_base_selection.clear();
+        self.lasso_keep_selection = false;
         self.laser_points.clear();
+        self.laser_active = false;
+        self.pending_bucket_fill = None;
         self.pending_points.clear();
         self.erasing = false;
         self.active_locked_id = None;
@@ -443,14 +531,112 @@ impl Editor {
         }))
     }
 
+    /// Records the span the opacity row's pointer maps onto, refreshed every
+    /// frame by the row's `on_prepaint`.
+    pub(crate) fn set_opacity_track_bounds(&mut self, bounds: gpui_kit::Bounds<Pixels>) {
+        self.opacity_track_bounds = Some(bounds);
+    }
+
+    /// The 0..100 value a pointer position stands for on the opacity row's
+    /// track, or `None` while the track has not been painted yet.
+    fn opacity_at(&self, position: gpui_kit::Point<Pixels>) -> Option<f64> {
+        let bounds = self.opacity_track_bounds?;
+        let width = bounds.size.width;
+        if width <= px(0.0) {
+            return None;
+        }
+        let progress = ((position.x - bounds.left()) / width).clamp(0.0, 1.0);
+        // Upstream's `Range` steps in tens.
+        Some(((progress * 10.0).round() * 10.0) as f64)
+    }
+
+    /// First press of an opacity drag: the whole drag collapses into one undo
+    /// step, so the checkpoint is taken here and only if the value moves.
+    pub(crate) fn start_opacity_drag(&mut self, position: gpui_kit::Point<Pixels>) {
+        let Some(value) = self.opacity_at(position) else {
+            return;
+        };
+        let current = if self.bucket_style_active() {
+            self.document.style.opacity
+        } else {
+            self.document
+                .selected_elements()
+                .first()
+                .map(|element| element.base().opacity)
+                .unwrap_or(100.0)
+        };
+        if (value - current).abs() < f64::EPSILON {
+            return;
+        }
+        self.push_checkpoint();
+        self.apply_opacity(value);
+    }
+
+    /// Subsequent moves of an opacity drag, applied without further checkpoints.
+    pub(crate) fn drag_opacity(&mut self, position: gpui_kit::Point<Pixels>) {
+        if let Some(value) = self.opacity_at(position) {
+            self.apply_opacity(value);
+        }
+    }
+
+    /// With the bucket armed and nothing selected the style rows edit the
+    /// fill's shared settings instead of an element.
+    fn bucket_style_active(&self) -> bool {
+        self.document.selected.is_empty() && self.document.tool == Tool::BucketFill
+    }
+
+    fn apply_opacity(&mut self, value: f64) {
+        if self.bucket_style_active() {
+            self.document.style.opacity = value;
+        } else {
+            self.document.set_selected_opacity(value);
+        }
+    }
+
     pub fn is_interacting(&self) -> bool {
         self.panning
             || self.drawing
             || self.erasing
             || self.drag_mode.is_some()
             || self.marquee_start.is_some()
-            || !self.laser_points.is_empty()
+            || !self.lasso_path.is_empty()
+            || self.laser_active
             || !self.pending_points.is_empty()
+    }
+
+    /// Visible part of the laser trail as `(world point, remaining fraction)`,
+    /// oldest first. Each point decays linearly over `LASER_LIFETIME`, so the
+    /// trail disappears from its oldest end instead of all at once.
+    pub fn laser_trail(&self) -> Vec<(Point, f64)> {
+        laser_trail_at(&self.laser_points, std::time::Instant::now())
+    }
+
+    fn start_laser_fade(&mut self, cx: &mut Context<Self>) {
+        if self.laser_fading {
+            return;
+        }
+        self.laser_fading = true;
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor().timer(LASER_FRAME).await;
+                let keep_going = this.update(cx, |editor, cx| {
+                    editor.prune_laser_points();
+                    cx.notify();
+                    !editor.laser_points.is_empty()
+                });
+                if !matches!(keep_going, Ok(true)) {
+                    break;
+                }
+            }
+            let _ = this.update(cx, |editor, _| editor.laser_fading = false);
+        })
+        .detach();
+    }
+
+    fn prune_laser_points(&mut self) {
+        let now = std::time::Instant::now();
+        self.laser_points
+            .retain(|sample| now.saturating_duration_since(sample.born) < LASER_LIFETIME);
     }
 
     pub fn drag_preview(&self) -> Option<crate::core::element::Element> {
@@ -467,6 +653,7 @@ impl Editor {
             Tool::Ellipse => new_ellipse(x, y, w, h, &opts),
             Tool::Frame => new_frame(x, y, w, h, None, &opts),
             Tool::StickyNote => new_sticky_note_with_text(x, y, w, h, &opts).0,
+            Tool::Embeddable => new_embeddable(x, y, w, h, &opts),
             _ => return None,
         })
     }
@@ -488,6 +675,124 @@ impl Editor {
             stroke_style: self.document.style.stroke_style,
             roughness: self.document.style.roughness,
             opacity: self.document.style.opacity,
+        }
+    }
+
+    /// Background color used by the bucket tool. A transparent background would
+    /// paint nothing, so it falls back to the green swatch upstream uses.
+    pub fn bucket_fill_color(&self) -> String {
+        let color = self.document.style.background_color.clone();
+        if crate::core::color::is_transparent(&color) {
+            "#b2f2bb".to_string()
+        } else {
+            color
+        }
+    }
+
+    fn commit_bucket_fill(&mut self, cx: &mut Context<Self>) {
+        let Some(point) = self.pending_bucket_fill.take() else {
+            return;
+        };
+        let background = self.bucket_fill_color();
+        let elements: Vec<Element> = self.document.scene.elements.clone();
+
+        if let Some(index) = crate::render::bucket_fill::find_fill_at(&elements, point) {
+            self.restyle_bucket_fill(index, &background);
+            cx.notify();
+            return;
+        }
+
+        match crate::render::bucket_fill::compute_bucket_fill(point, &elements) {
+            Ok(region) => {
+                self.push_checkpoint();
+                let options = ElementOptions {
+                    stroke_color: "transparent".to_string(),
+                    background_color: background,
+                    fill_style: self.document.style.fill_style,
+                    stroke_width: 1.0,
+                    stroke_style: StrokeStyle::Solid,
+                    roughness: 0.0,
+                    opacity: self.document.style.opacity,
+                };
+                let mut fill = new_line(region.points, &options);
+                if let Element::Line(line) = &mut fill {
+                    line.polygon = true;
+                }
+                // Paint belongs just above the shape it fills: keeping it below
+                // later elements (text, arrows) mirrors upstream's insertion.
+                let anchor = region
+                    .owner_id
+                    .as_deref()
+                    .and_then(|id| {
+                        self.document
+                            .scene
+                            .elements
+                            .iter()
+                            .position(|e| e.id() == id)
+                    })
+                    .or_else(|| {
+                        region
+                            .boundary_ids
+                            .iter()
+                            .filter_map(|id| {
+                                self.document
+                                    .scene
+                                    .elements
+                                    .iter()
+                                    .position(|e| e.id() == id)
+                            })
+                            .max()
+                    });
+                let index = anchor
+                    .map(|index| index + 1)
+                    .unwrap_or(self.document.scene.elements.len())
+                    .min(self.document.scene.elements.len());
+                self.document.scene.elements.insert(index, fill);
+            }
+            Err(BucketFillError::NoOwner) => {}
+            Err(BucketFillError::TooComplex) => {
+                let message = self.i18n.t("bucketfill.tooComplex");
+                self.show_toast(message, false, 3000, cx);
+            }
+            Err(
+                BucketFillError::OpenRegion
+                | BucketFillError::TooSmall
+                | BucketFillError::InvalidPolygon,
+            ) => {
+                let message = self.i18n.t("bucketfill.noRegion");
+                self.show_toast(message, false, 3000, cx);
+            }
+        }
+        cx.notify();
+    }
+
+    /// Re-applies the current bucket settings to an existing fill instead of
+    /// stacking a duplicate polygon on top of it.
+    fn restyle_bucket_fill(&mut self, index: usize, background: &str) {
+        let opacity = self.document.style.opacity;
+        let fill_style = self.document.style.fill_style;
+        let changed = self
+            .document
+            .scene
+            .elements
+            .get(index)
+            .filter(|element| crate::render::bucket_fill::is_fill_compatible(element))
+            .map(|element| {
+                let base = element.base();
+                base.background_color != background
+                    || base.fill_style != fill_style
+                    || base.opacity != opacity
+            })
+            .unwrap_or(false);
+        if !changed {
+            return;
+        }
+        self.push_checkpoint();
+        if let Some(element) = self.document.scene.elements.get_mut(index) {
+            let base = element.base_mut();
+            base.background_color = background.to_string();
+            base.fill_style = fill_style;
+            base.opacity = opacity;
         }
     }
 
@@ -714,6 +1019,7 @@ impl Editor {
                     } else if !already {
                         self.document.select(&id);
                     }
+                    self.sync_link_popup(&id);
                     if let Some(e) = self.document.scene.get(&id)
                         && e.is_text()
                         && already
@@ -732,6 +1038,7 @@ impl Editor {
                 } else {
                     if !mods.shift {
                         self.document.clear_selection();
+                        self.show_link_dialog = false;
                     }
                     self.marquee_start = Some(world);
                     self.marquee_current = Some(world);
@@ -775,7 +1082,39 @@ impl Editor {
                 self.erase_at(world);
             }
             Tool::Laser => {
-                self.laser_points = vec![world];
+                self.laser_points = vec![LaserPoint {
+                    point: world,
+                    born: std::time::Instant::now(),
+                }];
+                self.laser_active = true;
+            }
+            Tool::BucketFill => {
+                self.pending_bucket_fill = Some(world);
+            }
+            Tool::Lasso => {
+                let hit_selected = self
+                    .document
+                    .element_at(world, 5.0 / self.document.zoom)
+                    .map(|id| self.document.selected.contains(&id))
+                    .unwrap_or(false);
+                let inside_selection = !self.document.selected.is_empty()
+                    && selection_bounds(&self.document.scene, &self.document.selected)
+                        .map(|b| b.contains(world))
+                        .unwrap_or(false);
+                // A press on the current selection keeps the regular drag
+                // behaviour; anything else starts a new lasso path.
+                if hit_selected || inside_selection {
+                    self.begin_drag(world, mods.alt);
+                    return;
+                }
+                let keep_previous = mods.shift;
+                if !keep_previous {
+                    self.document.clear_selection();
+                    self.show_link_dialog = false;
+                }
+                self.lasso_keep_selection = keep_previous;
+                self.lasso_base_selection = self.document.selected.iter().cloned().collect();
+                self.lasso_path = vec![world];
             }
             Tool::Line | Tool::Arrow => {
                 let same_as_last = self
@@ -851,6 +1190,14 @@ impl Editor {
         self.drag_accum = Point::zero();
     }
 
+    fn update_lasso_selection(&mut self) {
+        let mut ids = crate::core::lasso::elements_in_lasso(&self.document.scene, &self.lasso_path);
+        if self.lasso_keep_selection {
+            ids.extend(self.lasso_base_selection.iter().cloned());
+        }
+        self.document.select_many(ids);
+    }
+
     fn erase_at(&mut self, world: Point) {
         let threshold = 8.0 / self.document.zoom;
         if let Some(id) = self.document.element_at(world, threshold) {
@@ -881,6 +1228,20 @@ impl Editor {
 
         if self.erasing {
             self.erase_at(world);
+            return;
+        }
+
+        if !self.lasso_path.is_empty() {
+            let min_step = 2.0 / self.document.zoom;
+            if self
+                .lasso_path
+                .last()
+                .map(|last| last.distance(world) >= min_step)
+                .unwrap_or(true)
+            {
+                self.lasso_path.push(world);
+            }
+            self.update_lasso_selection();
             return;
         }
 
@@ -947,8 +1308,11 @@ impl Editor {
         }
 
         if self.document.tool == Tool::Laser {
-            if !self.laser_points.is_empty() {
-                self.laser_points.push(world);
+            if self.laser_active {
+                self.laser_points.push(LaserPoint {
+                    point: world,
+                    born: std::time::Instant::now(),
+                });
             }
             return;
         }
@@ -1053,6 +1417,14 @@ impl Editor {
             return;
         }
 
+        if !self.lasso_path.is_empty() {
+            // The selection made along the path is kept; only the trail goes.
+            self.lasso_path.clear();
+            self.lasso_base_selection.clear();
+            self.lasso_keep_selection = false;
+            return;
+        }
+
         if self.drag_mode.is_some() {
             self.drag_mode = None;
             self.resize_origin = None;
@@ -1070,7 +1442,9 @@ impl Editor {
         }
 
         if self.document.tool == Tool::Laser {
-            self.laser_points.clear();
+            // The trail keeps its points on release; the fade ticker retires
+            // them one by one from the oldest end.
+            self.laser_active = false;
             return;
         }
 
@@ -1125,6 +1499,18 @@ impl Editor {
                     self.document.refresh_bindings();
                 }
             }
+            Tool::Embeddable => {
+                if let Some(start) = start {
+                    let (x, y, w, h) = self.drag_box(start, world, mods.shift);
+                    let element = new_embeddable(x, y, w, h, &opts);
+                    let id = element.id().to_string();
+                    self.document.scene.add(element);
+                    // Upstream opens the link editor right after the element
+                    // is drawn, since an embeddable is meaningless without it.
+                    self.document.select(&id);
+                    self.open_link_dialog();
+                }
+            }
             _ => {}
         }
 
@@ -1141,6 +1527,7 @@ impl Editor {
                     | Tool::FreeDraw
                     | Tool::Frame
                     | Tool::StickyNote
+                    | Tool::Embeddable
             )
         {
             self.set_tool(Tool::Selection);
@@ -2063,6 +2450,99 @@ impl Editor {
         self.export_preview = None;
     }
 
+    pub fn is_mermaid_dialog_open(&self) -> bool {
+        self.show_mermaid_dialog
+    }
+
+    pub fn mermaid_source(&self) -> &str {
+        &self.mermaid_text
+    }
+
+    pub fn mermaid_preview_elements(&self) -> &[Element] {
+        &self.mermaid_preview
+    }
+
+    pub fn open_mermaid_dialog(&mut self) {
+        self.mermaid_tab = MermaidTab::Mermaid;
+        if self.mermaid_text.is_empty() {
+            self.mermaid_text = MERMAID_EXAMPLE.to_string();
+        }
+        self.mermaid_caret = self.mermaid_text.len();
+        self.mermaid_anchor = self.mermaid_caret;
+        self.show_mermaid_dialog = true;
+        self.refresh_mermaid_preview();
+    }
+
+    pub fn close_mermaid_dialog(&mut self) {
+        self.show_mermaid_dialog = false;
+        self.mermaid_preview.clear();
+        self.mermaid_error = None;
+    }
+
+    /// Re-parses the editor buffer, mirroring upstream's live preview. A parse
+    /// failure clears the preview and keeps the message for the error pane.
+    fn refresh_mermaid_preview(&mut self) {
+        if self.mermaid_text.trim().is_empty() {
+            self.mermaid_preview.clear();
+            self.mermaid_error = None;
+            return;
+        }
+        match crate::core::mermaid::mermaid_elements(&self.mermaid_text) {
+            Ok(elements) => {
+                self.mermaid_preview = elements;
+                self.mermaid_error = None;
+            }
+            Err(message) => {
+                self.mermaid_preview.clear();
+                self.mermaid_error = Some(message);
+            }
+        }
+    }
+
+    /// Drops the generated diagram into the scene, centered in the viewport and
+    /// selected, then closes the dialog like upstream's `insertToEditor`.
+    pub fn insert_mermaid_diagram(&mut self) -> bool {
+        if self.mermaid_preview.is_empty() {
+            return false;
+        }
+        let mut elements = self.mermaid_preview.clone();
+        let refs: Vec<&Element> = elements.iter().collect();
+        let Some(bounds) = crate::core::bounds::common_bounds(&refs) else {
+            return false;
+        };
+        let width = (bounds.max_x - bounds.min_x).max(1.0);
+        let height = (bounds.max_y - bounds.min_y).max(1.0);
+        // Upstream inserts with `fit: "scale-down"`: it zooms the viewport out
+        // (never past 100%) so the whole diagram is visible, then centres it.
+        let (vw, vh) = self.viewport;
+        let fit_zoom = ((vw / width).min(vh / height)).min(1.0);
+        self.document.zoom = fit_zoom.clamp(0.05, 8.0);
+        let origin = self.default_insert_point(width, height);
+        for element in &mut elements {
+            crate::core::transform::translate_element(
+                element,
+                origin.x - bounds.min_x,
+                origin.y - bounds.min_y,
+            );
+        }
+
+        self.push_checkpoint();
+        let ids: Vec<String> = elements
+            .iter()
+            .filter(
+                |element| !matches!(element, Element::Text(text) if text.container_id.is_some()),
+            )
+            .map(|element| element.id().to_string())
+            .collect();
+        for element in elements {
+            self.document.scene.add(element);
+        }
+        self.document.refresh_bindings();
+        self.document.select_many(ids);
+        self.close_mermaid_dialog();
+        true
+    }
+
     /// The elements the export dialog is currently pointed at: the whole scene,
     /// or just the selection when "only selected" is on.
     fn export_scene(&self) -> Scene {
@@ -2275,6 +2755,13 @@ impl Editor {
         self.document.selected.clear();
     }
 
+    /// Upstream gates the canvas reset behind a confirmation dialog, so every
+    /// entry point opens the dialog and only the confirm button resets.
+    fn confirm_clear_canvas(&mut self) {
+        self.show_clear_dialog = false;
+        self.on_new_document();
+    }
+
     pub fn handle_key(
         &mut self,
         key: &str,
@@ -2289,14 +2776,29 @@ impl Editor {
             return true;
         }
 
+        if self.show_clear_dialog {
+            if key == "escape" {
+                self.show_clear_dialog = false;
+            } else if key == "enter" || key == "numpadenter" {
+                self.confirm_clear_canvas();
+            }
+            return true;
+        }
         if self.show_save_dialog {
             return self.handle_save_key(key, key_char, modifiers);
         }
         if self.show_image_dialog {
             return self.handle_export_key(key, key_char, modifiers);
         }
-        if self.show_link_dialog {
+        if self.show_mermaid_dialog {
+            return self.handle_mermaid_key(key, key_char, modifiers);
+        }
+        if self.show_link_dialog && self.link_editing {
             return self.handle_link_key(key, key_char, modifiers);
+        }
+        if self.show_link_dialog && key == "escape" {
+            self.cancel_link_dialog();
+            return true;
         }
         if self.color_popup.is_some() {
             return self.handle_color_key(key, key_char, modifiers);
@@ -2325,6 +2827,12 @@ impl Editor {
         if key == "escape" {
             if self.editing_text.is_some() {
                 self.commit_text_edit();
+                return true;
+            }
+            if !self.lasso_path.is_empty() {
+                self.lasso_path.clear();
+                self.lasso_base_selection.clear();
+                self.lasso_keep_selection = false;
                 return true;
             }
             if !self.pending_points.is_empty() {
@@ -2392,6 +2900,10 @@ impl Editor {
 
                 "o" => {
                     self.pending_scene_open = true;
+                    return true;
+                }
+                "delete" | "backspace" => {
+                    self.show_clear_dialog = true;
                     return true;
                 }
                 "e" if modifiers.shift => {
@@ -2491,6 +3003,7 @@ impl Editor {
             "f" => self.set_tool(Tool::Frame),
             "n" => self.set_tool(Tool::StickyNote),
             "e" | "0" => self.set_tool(Tool::Eraser),
+            "b" => self.set_tool(Tool::BucketFill),
             "k" => self.set_tool(Tool::Laser),
 
             "q" => self.document.tool_locked = !self.document.tool_locked,
@@ -2649,6 +3162,12 @@ impl Editor {
         if target == ColorTarget::CanvasBackground {
             return self.document.view_background_color.clone();
         }
+        if target == ColorTarget::Background
+            && self.document.tool == Tool::BucketFill
+            && self.document.selected.is_empty()
+        {
+            return self.bucket_fill_color();
+        }
         self.document
             .selected_elements()
             .first()
@@ -2708,12 +3227,22 @@ impl Editor {
     pub(crate) fn apply_color(&mut self, target: ColorTarget, color: &str) {
         match target {
             ColorTarget::Stroke => self.document.set_selected_stroke_color(color),
-            ColorTarget::Background => self.document.set_selected_background_color(color),
+            ColorTarget::Background => self.set_background_color(color),
             ColorTarget::CanvasBackground => {
                 self.document.view_background_color = color.to_string()
             }
         }
         self.hex_buffer = color.trim_start_matches('#').to_string();
+    }
+
+    /// Background colors picked while the bucket tool is active choose the
+    /// paint color; with a selection they restyle the selected elements.
+    pub(crate) fn set_background_color(&mut self, color: &str) {
+        if self.document.tool == Tool::BucketFill && self.document.selected.is_empty() {
+            self.document.style.background_color = color.to_string();
+        } else {
+            self.document.set_selected_background_color(color);
+        }
     }
 
     pub(crate) fn set_shade(&mut self, target: ColorTarget, shade: usize) {
@@ -2779,15 +3308,52 @@ impl Editor {
         scene.into_iter().chain(available).next()
     }
 
+    /// Opens the popup in its input mode, as upstream's action button and the
+    /// post-draw flow do.
     pub(crate) fn open_link_dialog(&mut self) {
         self.link_input = self.selected_link().unwrap_or_default();
         self.show_link_dialog = true;
+        self.link_editing = true;
         self.color_popup = None;
         self.font_popup = false;
     }
 
+    /// Opens the popup in summary mode for a selected embeddable or linked
+    /// element, matching upstream's `showHyperlinkPopup: "info"`.
+    fn open_link_info(&mut self, link: Option<String>) {
+        self.link_input = link.unwrap_or_default();
+        self.show_link_dialog = true;
+        self.link_editing = false;
+        self.color_popup = None;
+        self.font_popup = false;
+    }
+
+    pub(crate) fn begin_link_edit(&mut self) {
+        self.link_input = self.selected_link().unwrap_or_default();
+        self.link_editing = true;
+    }
+
     pub fn is_link_dialog_open(&self) -> bool {
         self.show_link_dialog
+    }
+
+    pub fn is_link_editing(&self) -> bool {
+        self.link_editing
+    }
+
+    /// Shows the summary popup when a pointer lands on an embeddable or a
+    /// linked element, and dismisses it otherwise.
+    fn sync_link_popup(&mut self, id: &str) {
+        let Some(element) = self.document.scene.get(id) else {
+            self.show_link_dialog = false;
+            return;
+        };
+        let link = element.base().link.clone().filter(|link| !link.is_empty());
+        if element.kind() == crate::core::element::ElementType::Embeddable || link.is_some() {
+            self.open_link_info(link);
+        } else {
+            self.show_link_dialog = false;
+        }
     }
 
     pub fn selected_link(&self) -> Option<String> {
@@ -2805,6 +3371,15 @@ impl Editor {
         self.link_input.clear();
     }
 
+    /// Removes the link straight from the summary popup, which upstream does
+    /// through its trash button without reopening the input.
+    pub(crate) fn remove_link(&mut self) {
+        self.document.set_selected_link(None);
+        self.link_input.clear();
+        self.show_link_dialog = true;
+        self.link_editing = false;
+    }
+
     pub(crate) fn cancel_link_dialog(&mut self) {
         self.show_link_dialog = false;
     }
@@ -2816,7 +3391,10 @@ impl Editor {
         } else {
             self.document.set_selected_link(Some(&link));
         }
-        self.show_link_dialog = false;
+        // Submitting hands the popup back to its summary mode, as upstream's
+        // `showHyperlinkPopup: "info"` does.
+        self.link_input = link;
+        self.link_editing = false;
     }
 
     fn handle_link_key(
@@ -2967,6 +3545,216 @@ impl Editor {
         if !text.is_empty() {
             self.save_name_insert(&text);
         }
+    }
+
+    /// The selected byte span of the Mermaid source, normalized to
+    /// `start <= end`. An empty span means there is a caret but no selection.
+    fn mermaid_range(&self) -> (usize, usize) {
+        let len = self.mermaid_text.len();
+        let caret = self.mermaid_caret.min(len);
+        let anchor = self.mermaid_anchor.min(len);
+        (caret.min(anchor), caret.max(anchor))
+    }
+
+    fn mermaid_select_all(&mut self) {
+        self.mermaid_anchor = 0;
+        self.mermaid_caret = self.mermaid_text.len();
+    }
+
+    fn mermaid_insert(&mut self, text: &str) {
+        let text = text.replace("\r\n", "\n").replace('\t', "  ");
+        let (start, end) = self.mermaid_range();
+        self.mermaid_text.replace_range(start..end, &text);
+        self.mermaid_caret = start + text.len();
+        self.mermaid_anchor = self.mermaid_caret;
+        self.refresh_mermaid_preview();
+    }
+
+    fn mermaid_backspace(&mut self) {
+        let (start, end) = self.mermaid_range();
+        let at = if start != end {
+            self.mermaid_text.replace_range(start..end, "");
+            start
+        } else if start > 0 {
+            let prev = char_boundary_before(&self.mermaid_text, start);
+            self.mermaid_text.replace_range(prev..start, "");
+            prev
+        } else {
+            return;
+        };
+        self.mermaid_caret = at;
+        self.mermaid_anchor = at;
+        self.refresh_mermaid_preview();
+    }
+
+    fn mermaid_delete(&mut self) {
+        let (start, end) = self.mermaid_range();
+        if start == end {
+            let next = char_boundary_after(&self.mermaid_text, start);
+            if next == start {
+                return;
+            }
+            self.mermaid_text.replace_range(start..next, "");
+        } else {
+            self.mermaid_text.replace_range(start..end, "");
+        }
+        self.mermaid_caret = start;
+        self.mermaid_anchor = start;
+        self.refresh_mermaid_preview();
+    }
+
+    fn mermaid_move(&mut self, key: &str, shift: bool) {
+        if key == "up" || key == "down" {
+            self.mermaid_move_vertical(key == "up", shift);
+            return;
+        }
+
+        let len = self.mermaid_text.len();
+        let caret = self.mermaid_caret.min(len);
+        let (start, end) = self.mermaid_range();
+        let selected = start != end;
+
+        let next = match key {
+            "left" if !shift && selected => start,
+            "left" => char_boundary_before(&self.mermaid_text, caret),
+            "right" if !shift && selected => end,
+            "right" => char_boundary_after(&self.mermaid_text, caret),
+            "home" => mermaid_line_start(&self.mermaid_text, caret),
+            "end" => mermaid_line_end(&self.mermaid_text, caret),
+            _ => caret,
+        };
+
+        self.mermaid_caret = next;
+        if !shift {
+            self.mermaid_anchor = next;
+        }
+    }
+
+    /// Moves the caret a line up or down while keeping the column, which is how
+    /// a code editor's arrow keys behave.
+    fn mermaid_move_vertical(&mut self, up: bool, shift: bool) {
+        let len = self.mermaid_text.len();
+        let (start, end) = self.mermaid_range();
+        let selected = start != end;
+        let mut caret = self.mermaid_caret.min(len);
+        if !shift && selected {
+            caret = if up { start } else { end };
+        }
+
+        let line_start = mermaid_line_start(&self.mermaid_text, caret);
+        let column = caret - line_start;
+        let target = if up {
+            if line_start == 0 {
+                Some(0)
+            } else {
+                let previous_end = line_start - 1;
+                let previous_start = mermaid_line_start(&self.mermaid_text, previous_end);
+                Some(previous_start + column.min(previous_end - previous_start))
+            }
+        } else {
+            let line_end = mermaid_line_end(&self.mermaid_text, caret);
+            if line_end == len {
+                None
+            } else {
+                let next_start = line_end + 1;
+                let next_end = mermaid_line_end(&self.mermaid_text, next_start);
+                Some(next_start + column.min(next_end - next_start))
+            }
+        };
+
+        let Some(mut target) = target else {
+            return;
+        };
+        while target > 0 && !self.mermaid_text.is_char_boundary(target) {
+            target -= 1;
+        }
+        self.mermaid_caret = target;
+        if !shift {
+            self.mermaid_anchor = target;
+        }
+    }
+
+    fn mermaid_copy(&self, cx: &App) {
+        let (start, end) = self.mermaid_range();
+        if start == end {
+            return;
+        }
+        cx.write_to_clipboard(ClipboardItem::new_string(
+            self.mermaid_text[start..end].to_string(),
+        ));
+    }
+
+    fn mermaid_cut(&mut self, cx: &App) {
+        let (start, end) = self.mermaid_range();
+        if start == end {
+            return;
+        }
+        cx.write_to_clipboard(ClipboardItem::new_string(
+            self.mermaid_text[start..end].to_string(),
+        ));
+        self.mermaid_text.replace_range(start..end, "");
+        self.mermaid_caret = start;
+        self.mermaid_anchor = start;
+        self.refresh_mermaid_preview();
+    }
+
+    fn mermaid_paste(&mut self, cx: &App) {
+        let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) else {
+            return;
+        };
+        if !text.is_empty() {
+            self.mermaid_insert(&text);
+        }
+    }
+
+    fn handle_mermaid_key(
+        &mut self,
+        key: &str,
+        key_char: Option<String>,
+        modifiers: Modifiers,
+    ) -> bool {
+        if key == "escape" {
+            self.close_mermaid_dialog();
+            return true;
+        }
+        if (modifiers.control || modifiers.platform) && (key == "enter" || key == "numpadenter") {
+            self.insert_mermaid_diagram();
+            return true;
+        }
+        if modifiers.control || modifiers.platform {
+            // c/x/v are routed through `on_key_down`, where the clipboard is
+            // available; the rest act on the source buffer directly.
+            match key {
+                "a" => self.mermaid_select_all(),
+                "backspace" => self.mermaid_backspace(),
+                "delete" => self.mermaid_delete(),
+                "left" | "right" | "home" | "end" | "up" | "down" => {
+                    self.mermaid_move(key, modifiers.shift)
+                }
+                _ => {}
+            }
+            return true;
+        }
+        if modifiers.alt {
+            return true;
+        }
+
+        match key {
+            "backspace" => self.mermaid_backspace(),
+            "delete" => self.mermaid_delete(),
+            "enter" | "numpadenter" => self.mermaid_insert("\n"),
+            "tab" => self.mermaid_insert("  "),
+            "left" | "right" | "home" | "end" | "up" | "down" => {
+                self.mermaid_move(key, modifiers.shift)
+            }
+            "space" => self.mermaid_insert(" "),
+            _ => {
+                if let Some(ch) = printable_char(key, key_char) {
+                    self.mermaid_insert(&ch);
+                }
+            }
+        }
+        true
     }
 
     fn handle_save_key(
@@ -3252,6 +4040,347 @@ fn char_boundary_after(text: &str, index: usize) -> usize {
     }
 }
 
+/// Start of the line containing `index`.
+fn mermaid_line_start(text: &str, index: usize) -> usize {
+    let index = index.min(text.len());
+    text[..index].rfind('\n').map_or(0, |offset| offset + 1)
+}
+
+/// End of the line containing `index`, excluding the newline itself.
+fn mermaid_line_end(text: &str, index: usize) -> usize {
+    let index = index.min(text.len());
+    text[index..]
+        .find('\n')
+        .map_or(text.len(), |offset| index + offset)
+}
+
+/// Splits the upstream description markup (`<flowchartLink>…</flowchartLink>`)
+/// into plain text plus the byte ranges that should render as links.
+fn mermaid_description_runs(text: &str) -> (String, Vec<std::ops::Range<usize>>) {
+    const TAGS: [(&str, &str); 4] = [
+        ("<flowchartLink>", "</flowchartLink>"),
+        ("<sequenceLink>", "</sequenceLink>"),
+        ("<classLink>", "</classLink>"),
+        ("<erdLink>", "</erdLink>"),
+    ];
+
+    let mut plain = String::new();
+    let mut links = Vec::new();
+    let mut rest = text;
+    let mut link_start: Option<usize> = None;
+    loop {
+        let Some(open) = rest.find('<') else {
+            plain.push_str(rest);
+            break;
+        };
+        plain.push_str(&rest[..open]);
+        rest = &rest[open..];
+        let Some(close) = rest.find('>') else {
+            plain.push_str(rest);
+            break;
+        };
+        let tag = &rest[..=close];
+        rest = &rest[close + 1..];
+
+        if let Some((_, closing)) = TAGS.iter().find(|(opening, _)| *opening == tag) {
+            link_start = Some(plain.len());
+            let _ = closing;
+        } else if let Some((opening, _)) = TAGS.iter().find(|(_, closing)| *closing == tag) {
+            let _ = opening;
+            if let Some(start) = link_start.take()
+                && plain.len() > start
+            {
+                links.push(start..plain.len());
+            }
+        } else {
+            plain.push_str(tag);
+        }
+    }
+    (plain, links)
+}
+
+/// Code font for the Mermaid editor. Upstream relies on the browser's
+/// `monospace`; GPUI's generic `monospace` maps to a ligature-capable family
+/// here, which would draw `-->` as a single arrow, so name the font that
+/// fontconfig resolves for `monospace` instead.
+const MERMAID_CODE_FONT: &str = "Noto Sans Mono";
+
+/// Colours for the Mermaid source editor, mirroring `CodeMirrorEditor.tsx`
+/// (VS light theme in light mode, VS dark theme in dark mode).
+#[derive(Clone, Copy)]
+struct MermaidCodeColors {
+    /// Editor surface: `#fff` in light, `#1e1e1e` in dark.
+    background: Rgba,
+    /// Default token and caret colour.
+    text: Rgba,
+    caret: Rgba,
+    gutter: Rgba,
+    keyword: Rgba,
+    string: Rgba,
+    comment: Rgba,
+    number: Rgba,
+    operator: Rgba,
+    punctuation: Rgba,
+    variable: Rgba,
+    bracket: Rgba,
+}
+
+impl MermaidCodeColors {
+    fn for_dark(dark: bool) -> Self {
+        if dark {
+            Self {
+                background: rgb(0x1e1e1e),
+                text: rgb(0xd4d4d4),
+                caret: rgb(0xffffff),
+                gutter: rgb(0x858585),
+                keyword: rgb(0x569cd6),
+                string: rgb(0xce9178),
+                comment: rgb(0x6a9955),
+                number: rgb(0xb5cea8),
+                operator: rgb(0xd4d4d4),
+                punctuation: rgb(0xd4d4d4),
+                variable: rgb(0x9cdcfe),
+                bracket: rgb(0xffd700),
+            }
+        } else {
+            Self {
+                background: rgb(0xffffff),
+                text: rgb(0x1e1e1e),
+                caret: rgb(0x000000),
+                gutter: rgb(0x999999),
+                keyword: rgb(0x0000ff),
+                string: rgb(0xa31515),
+                comment: rgb(0x008000),
+                number: rgb(0x098658),
+                operator: rgb(0x1e1e1e),
+                punctuation: rgb(0x1e1e1e),
+                variable: rgb(0x001080),
+                bracket: rgb(0xaf00db),
+            }
+        }
+    }
+}
+
+/// Diagram declarations, matched case-insensitively like upstream's regex.
+const MERMAID_DIAGRAM_KEYWORDS: [&str; 15] = [
+    "flowchart",
+    "graph",
+    "sequenceDiagram",
+    "classDiagram",
+    "stateDiagram",
+    "erDiagram",
+    "gantt",
+    "pie",
+    "mindmap",
+    "journey",
+    "gitGraph",
+    "timeline",
+    "quadrantChart",
+    "sankey",
+    "xychart",
+];
+
+/// Flow directions, case-sensitive upstream (`TB|TD|BT|RL|LR`).
+const MERMAID_DIRECTIONS: [&str; 5] = ["TB", "TD", "BT", "RL", "LR"];
+
+/// Block keywords, matched case-insensitively.
+const MERMAID_KEYWORDS: [&str; 23] = [
+    "subgraph",
+    "end",
+    "participant",
+    "actor",
+    "loop",
+    "alt",
+    "else",
+    "opt",
+    "par",
+    "critical",
+    "break",
+    "rect",
+    "note",
+    "over",
+    "activate",
+    "deactivate",
+    "title",
+    "section",
+    "class",
+    "style",
+    "linkStyle",
+    "classDef",
+    "click",
+];
+
+/// Matches `keyword\b` at the start of `rest`, returning the keyword length.
+fn mermaid_keyword_len(rest: &str, keywords: &[&str], case_insensitive: bool) -> Option<usize> {
+    keywords.iter().find_map(|keyword| {
+        let len = keyword.len();
+        if rest.len() < len || !rest.is_char_boundary(len) {
+            return None;
+        }
+        let head = &rest[..len];
+        let matches = if case_insensitive {
+            head.eq_ignore_ascii_case(keyword)
+        } else {
+            head == *keyword
+        };
+        if !matches {
+            return None;
+        }
+        // Upstream's `\b` requires a non-word character after the keyword.
+        let boundary = rest[len..]
+            .chars()
+            .next()
+            .is_none_or(|next| !(next.is_ascii_alphanumeric() || next == '_'));
+        boundary.then_some(len)
+    })
+}
+
+/// Mirrors upstream's operator alternation:
+/// `[-.=<>|ox]+>`, then `<[-.=<>|ox]+`, then `--+|\.\.+|==+`.
+fn mermaid_operator_len(rest: &str) -> Option<usize> {
+    let bytes = rest.as_bytes();
+    let arrow_class =
+        |byte: u8| matches!(byte, b'-' | b'.' | b'=' | b'<' | b'>' | b'|' | b'o' | b'x');
+
+    let mut run = 0;
+    while run < bytes.len() && arrow_class(bytes[run]) {
+        run += 1;
+    }
+    for len in (1..=run).rev() {
+        if bytes.get(len) == Some(&b'>') {
+            return Some(len + 1);
+        }
+    }
+
+    if bytes.first() == Some(&b'<') {
+        let mut len = 1;
+        while len < bytes.len() && arrow_class(bytes[len]) {
+            len += 1;
+        }
+        if len > 1 {
+            return Some(len);
+        }
+    }
+
+    if rest.starts_with("--") {
+        return Some(rest.chars().take_while(|ch| *ch == '-').count());
+    }
+    if rest.starts_with("..") {
+        return Some(rest.chars().take_while(|ch| *ch == '.').count());
+    }
+    if rest.starts_with("==") {
+        return Some(rest.chars().take_while(|ch| *ch == '=').count());
+    }
+    None
+}
+
+/// Tokenises one line with the same rules as upstream's `mermaid-lang-lite.ts`
+/// stream parser, so the editor's colours match excalidraw.com.
+fn mermaid_token_runs(
+    line: &str,
+    colors: &MermaidCodeColors,
+) -> Vec<(std::ops::Range<usize>, Rgba)> {
+    let mut runs = Vec::new();
+    let mut index = 0;
+    while index < line.len() {
+        let rest = &line[index..];
+        let advance;
+
+        if rest.starts_with("%%") {
+            runs.push((index..line.len(), colors.comment));
+            break;
+        }
+
+        if rest.starts_with('"') {
+            // A double-quoted string, honouring backslash escapes.
+            let mut chars = rest.char_indices();
+            chars.next();
+            let mut escaped = false;
+            let mut closing = None;
+            for (offset, ch) in chars {
+                if escaped {
+                    escaped = false;
+                } else if ch == '\\' {
+                    escaped = true;
+                } else if ch == '"' {
+                    closing = Some(offset + ch.len_utf8());
+                    break;
+                }
+            }
+            if let Some(end) = closing {
+                runs.push((index..index + end, colors.string));
+                index += end;
+                continue;
+            }
+        }
+
+        if let Some(len) = mermaid_keyword_len(rest, &MERMAID_DIAGRAM_KEYWORDS, true)
+            .or_else(|| mermaid_keyword_len(rest, &MERMAID_DIRECTIONS, false))
+            .or_else(|| mermaid_keyword_len(rest, &MERMAID_KEYWORDS, true))
+        {
+            runs.push((index..index + len, colors.keyword));
+            advance = len;
+        } else if let Some(len) = mermaid_operator_len(rest) {
+            runs.push((index..index + len, colors.operator));
+            advance = len;
+        } else {
+            let ch = rest.chars().next().unwrap_or(' ');
+            let color = if "[](){}|<>".contains(ch) {
+                Some(colors.bracket)
+            } else if ch.is_ascii_alphabetic() || ch == '_' {
+                let len = rest
+                    .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+                    .unwrap_or(rest.len());
+                runs.push((index..index + len, colors.variable));
+                index += len;
+                continue;
+            } else if ch.is_ascii_digit() {
+                let mut len = rest
+                    .find(|c: char| !c.is_ascii_digit())
+                    .unwrap_or(rest.len());
+                if rest[len..].starts_with('.')
+                    && rest[len + 1..].starts_with(|c: char| c.is_ascii_digit())
+                {
+                    len += 1 + rest[len + 1..]
+                        .find(|c: char| !c.is_ascii_digit())
+                        .unwrap_or(rest.len() - len - 1);
+                }
+                runs.push((index..index + len, colors.number));
+                index += len;
+                continue;
+            } else if ",:;".contains(ch) {
+                Some(colors.punctuation)
+            } else {
+                None
+            };
+            if let Some(color) = color {
+                runs.push((index..index + ch.len_utf8(), color));
+            }
+            advance = ch.len_utf8();
+        }
+
+        index += advance;
+    }
+    runs
+}
+
+/// Applies upstream's dark-mode export filter to a single `#rrggbb` colour.
+/// Transparent stays transparent, matching `exportToCanvas` in dark theme.
+fn darken_hex(color: &str) -> String {
+    if color.eq_ignore_ascii_case("transparent") {
+        return color.to_string();
+    }
+    crate::render::export::dark_mode_hex(color)
+}
+
+fn darken_element_colors(elements: &mut [Element]) {
+    for element in elements {
+        let base = element.base_mut();
+        base.stroke_color = darken_hex(&base.stroke_color);
+        base.background_color = darken_hex(&base.background_color);
+    }
+}
+
 fn element_search_text(element: &Element) -> Option<&str> {
     match element {
         Element::Text(t) => Some(t.text.as_str()),
@@ -3279,6 +4408,18 @@ const TOOL_ROW: &[(Tool, &str, Option<&str>)] = &[
     (Tool::Eraser, "EraserIcon", Some("E")),
 ];
 
+fn extra_tools_trigger(tool: Tool) -> (&'static str, bool) {
+    match tool {
+        Tool::Image => ("ImageIcon", true),
+        Tool::Frame => ("frameToolIcon", true),
+        Tool::Laser => ("laserPointerToolIcon", true),
+        Tool::BucketFill => ("bucketFillIcon", true),
+        Tool::Lasso => ("lassoToolIcon", true),
+        Tool::Embeddable => ("EmbedIcon", true),
+        _ => ("DotsIcon", false),
+    }
+}
+
 struct MoreTool {
     key: &'static str,
     icon: &'static str,
@@ -3291,10 +4432,25 @@ struct MoreTool {
 enum MoreToolAction {
     Tool(Tool),
 
-    Embed,
+    Mermaid,
 
     Stub,
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MermaidTab {
+    TextToDiagram,
+    Mermaid,
+}
+
+const MERMAID_EXAMPLE: &str = "\
+flowchart TD
+ A[Christmas] -->|Get money| B(Go shopping)
+ B --> C{Let me think}
+ C -->|One| D[Laptop]
+ C -->|Two| E[iPhone]
+ C -->|Three| F[Car]
+";
 
 const MORE_TOOLS: &[MoreTool] = &[
     MoreTool {
@@ -3316,7 +4472,7 @@ const MORE_TOOLS: &[MoreTool] = &[
         icon: "EmbedIcon",
         shortcut: None,
         ai: false,
-        action: MoreToolAction::Embed,
+        action: MoreToolAction::Tool(Tool::Embeddable),
     },
     MoreTool {
         key: "toolbar.drawToShape",
@@ -3337,14 +4493,14 @@ const MORE_TOOLS: &[MoreTool] = &[
         icon: "bucketFillIcon",
         shortcut: Some("B"),
         ai: false,
-        action: MoreToolAction::Stub,
+        action: MoreToolAction::Tool(Tool::BucketFill),
     },
     MoreTool {
         key: "toolbar.lasso",
         icon: "lassoToolIcon",
         shortcut: None,
         ai: false,
-        action: MoreToolAction::Stub,
+        action: MoreToolAction::Tool(Tool::Lasso),
     },
     MoreTool {
         key: "toolbar.textToDiagram",
@@ -3358,7 +4514,7 @@ const MORE_TOOLS: &[MoreTool] = &[
         icon: "mermaidIcon",
         shortcut: None,
         ai: false,
-        action: MoreToolAction::Stub,
+        action: MoreToolAction::Mermaid,
     },
     MoreTool {
         key: "toolbar.wireframeToCode",
@@ -3643,11 +4799,18 @@ impl Render for Editor {
                 .on_click(Self::act(cx, move |this, _, _, _| this.set_tool(tool))),
             );
         }
+        let (more_icon, more_selected) = extra_tools_trigger(active_tool);
         let mut toolbar = toolbar.child(chrome::toolbar_divider(tokens, false)).child(
-            chrome::tool_button("more-tools", "DotsIcon", None, self.show_more_tools, tokens)
-                .on_click(Self::act(cx, |this, _, _, _| {
-                    this.set_more_tools_open(!this.show_more_tools);
-                })),
+            chrome::tool_button(
+                "more-tools",
+                more_icon,
+                None,
+                more_selected || self.show_more_tools,
+                tokens,
+            )
+            .on_click(Self::act(cx, |this, _, _, _| {
+                this.set_more_tools_open(!this.show_more_tools);
+            })),
         );
 
         if self.show_more_tools {
@@ -3694,7 +4857,8 @@ impl Render for Editor {
             )),
             _ => None,
         };
-        let laser = self.laser_points.clone();
+        let laser = self.laser_trail();
+        let lasso = self.lasso_path.clone();
         let linear_points = self.document.selected_linear_points().map(|(_, p)| p);
         let pending = self.pending_points.clone();
         let pending_cursor = self.cursor_world;
@@ -3720,13 +4884,25 @@ impl Render for Editor {
             .bg(view_bg)
             .on_mouse_down(
                 MouseButton::Left,
-                Self::act(cx, |this, e: &MouseDownEvent, _, _| {
+                Self::act(cx, |this, e: &MouseDownEvent, _, cx| {
                     this.on_canvas_mouse_down(
                         e.position.x.to_f64() as f32,
                         e.position.y.to_f64() as f32,
                         e.modifiers,
                         e.click_count,
                     );
+                    if this.laser_active {
+                        this.start_laser_fade(cx);
+                    }
+                }),
+            )
+            .on_mouse_up(
+                MouseButton::Left,
+                Self::act(cx, |this, _: &MouseUpEvent, _, cx| {
+                    if this.pending_bucket_fill.is_some() {
+                        this.commit_bucket_fill(cx);
+                        cx.stop_propagation();
+                    }
                 }),
             )
             .on_mouse_down(
@@ -3834,6 +5010,16 @@ impl Render for Editor {
                         if let Some(b) = &marquee_bounds {
                             crate::canvas::paint_marquee(
                                 b,
+                                selection_color,
+                                zoom,
+                                scroll_x,
+                                scroll_y,
+                                window,
+                            );
+                        }
+                        if lasso.len() >= 2 {
+                            crate::canvas::paint_lasso(
+                                &lasso,
                                 selection_color,
                                 zoom,
                                 scroll_x,
@@ -3977,17 +5163,18 @@ impl Render for Editor {
         let panel_limit =
             (window.viewport_size().height.to_f64() as f32 - dock_top - 16.0).max(120.0);
 
-        let properties = if self.document.selected.is_empty() {
-            div().into_any_element()
-        } else {
-            crate::properties::render_properties_panel(self, cx)
-                .absolute()
-                .left(px(size::CONTAINER_PADDING))
-                .top(px(dock_top))
-                .max_h(px(panel_limit))
-                .occlude()
-                .into_any_element()
-        };
+        let properties =
+            if self.document.selected.is_empty() && self.document.tool != Tool::BucketFill {
+                div().into_any_element()
+            } else {
+                crate::properties::render_properties_panel(self, cx)
+                    .absolute()
+                    .left(px(size::CONTAINER_PADDING))
+                    .top(px(dock_top))
+                    .max_h(px(panel_limit))
+                    .occlude()
+                    .into_any_element()
+            };
 
         let library_panel = if self.document.show_library {
             crate::library::render_library_panel(self, cx)
@@ -4054,7 +5241,29 @@ impl Render for Editor {
                     }
                 }
 
-                if (modifiers.control || modifiers.platform) && !modifiers.shift && key == "v" {
+                if this.show_mermaid_dialog && (modifiers.control || modifiers.platform) {
+                    match key.as_str() {
+                        "c" => {
+                            this.mermaid_copy(cx);
+                            return;
+                        }
+                        "x" => {
+                            this.mermaid_cut(cx);
+                            return;
+                        }
+                        "v" => {
+                            this.mermaid_paste(cx);
+                            return;
+                        }
+                        _ => {}
+                    }
+                }
+
+                if (modifiers.control || modifiers.platform)
+                    && !modifiers.shift
+                    && key == "v"
+                    && !this.show_mermaid_dialog
+                {
                     if this.editing_text.is_none() && this.document.has_clipboard() {
                     } else {
                         if this.editing_text.is_none() && this.paste_image_from_clipboard(cx) {
@@ -4179,13 +5388,29 @@ impl Render for Editor {
                         .occlude(),
                 );
             }
-            if self.is_link_dialog_open() {
+            if self.is_link_dialog_open()
+                && let Some(bounds) =
+                    selection_bounds(&self.document.scene, &self.document.selected)
+            {
+                let zoom = self.document.zoom;
+                let center_x = self.document.scroll.x
+                    + (bounds.min_x + (bounds.max_x - bounds.min_x) / 2.0) * zoom;
+                let viewport = window.viewport_size();
+                let min_left = size::CONTAINER_PADDING as f64;
+                let max_left = (viewport.width.to_f64()
+                    - size::link_dialog::WIDTH as f64
+                    - size::CONTAINER_PADDING as f64)
+                    .max(min_left);
+                let left =
+                    (center_x - size::link_dialog::WIDTH as f64 / 2.0).clamp(min_left, max_left);
+                let top = (self.document.scroll.y + bounds.min_y * zoom
+                    - size::link_dialog::TOP_OFFSET as f64)
+                    .max(min_left);
                 root = root.child(
                     crate::properties::render_link_dialog(self, cx)
                         .absolute()
-                        .left(px(size::CONTAINER_PADDING))
-                        .top(px(size::CONTAINER_PADDING))
-                        .occlude(),
+                        .left(px(left as f32))
+                        .top(px(top as f32)),
                 );
             }
         }
@@ -4211,11 +5436,17 @@ impl Render for Editor {
         if self.show_help {
             root = root.child(self.render_help(cx));
         }
+        if self.show_clear_dialog {
+            root = root.child(self.render_clear_canvas_dialog(cx));
+        }
         if self.show_save_dialog {
             root = root.child(self.render_save_dialog(cx));
         }
         if self.show_image_dialog {
             root = root.child(self.render_image_dialog(cx));
+        }
+        if self.show_mermaid_dialog {
+            root = root.child(self.render_mermaid_dialog(cx));
         }
         if self.show_palette {
             root = root.child(self.render_palette(cx));
@@ -4284,16 +5515,8 @@ impl Editor {
                     this.show_more_tools = false;
                 }))
             }
-            MoreToolAction::Embed => row.on_click(Self::act(cx, |this, _, _, _| {
-                this.push_checkpoint();
-                let (vw, vh) = (800.0, 600.0);
-                let x = (vw / 2.0 - this.document.scroll.x) / this.document.zoom - 200.0;
-                let y = (vh / 2.0 - this.document.scroll.y) / this.document.zoom - 150.0;
-                let opts = this.current_style_options();
-                let el = crate::core::factory::new_embeddable(x, y, 400.0, 300.0, &opts);
-                let id = el.id().to_string();
-                this.document.scene.add(el);
-                this.document.select(&id);
+            MoreToolAction::Mermaid => row.on_click(Self::act(cx, move |this, _, _, _| {
+                this.open_mermaid_dialog();
                 this.show_more_tools = false;
             })),
             MoreToolAction::Stub => row.on_click(Self::act(cx, move |this, _, _, _| {
@@ -4705,7 +5928,7 @@ impl Editor {
                     tokens,
                 )
                 .on_click(Self::act(cx, |this, _, _, _| {
-                    this.on_new_document();
+                    this.show_clear_dialog = true;
                     this.show_menu = false;
                 })),
             )
@@ -5502,7 +6725,7 @@ impl Editor {
         };
         match state.target {
             ColorTarget::Stroke => self.document.set_selected_stroke_color(&state.color),
-            ColorTarget::Background => self.document.set_selected_background_color(&state.color),
+            ColorTarget::Background => self.set_background_color(&state.color),
             ColorTarget::CanvasBackground => self.document.view_background_color = state.color,
         }
     }
@@ -6103,7 +7326,7 @@ impl PaletteAction {
                 editor.set_menu_open(true);
                 editor.toggle_color_popup(ColorTarget::CanvasBackground);
             }
-            PaletteAction::NewCanvas => editor.on_new_document(),
+            PaletteAction::NewCanvas => editor.show_clear_dialog = true,
             PaletteAction::Find => editor.open_find(),
             PaletteAction::Help => editor.open_help(),
         }
@@ -7717,6 +8940,131 @@ impl Editor {
             .into_any_element()
     }
 
+    /// Upstream ConfirmDialog for `clearCanvas`: a small dialog with the title
+    /// over a rule, the alert body, then the cancel/confirm pair on the right.
+    fn render_clear_canvas_dialog(&self, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
+        let tokens = crate::design::Tokens::for_palette(palette_of(self.document.theme));
+        let t = |k: &str| self.i18n.t(k);
+
+        use crate::design::size::clear_dialog as d;
+
+        let hover_bg = tokens.hover();
+        let danger_bg = tokens.danger();
+        let danger_hover_bg = tokens.danger_hover();
+
+        let cancel = div()
+            .id("clear-dialog-cancel")
+            .test_support()
+            .flex()
+            .items_center()
+            .justify_center()
+            .h(px(d::BUTTON_H))
+            .px(px(d::BUTTON_PAD_X))
+            .rounded(px(d::BUTTON_RADIUS))
+            .border_1()
+            .border_color(tokens.border())
+            .text_size(px(d::BUTTON_FONT))
+            .font_semibold()
+            .text_color(tokens.surface_text())
+            .hover(move |s| s.bg(hover_bg))
+            .child(SharedString::from(t("buttons.cancel")))
+            .on_click(Self::act(cx, |this, _, _, _| {
+                this.show_clear_dialog = false
+            }));
+
+        let confirm = div()
+            .id("clear-dialog-confirm")
+            .test_support()
+            .flex()
+            .items_center()
+            .justify_center()
+            .h(px(d::BUTTON_H))
+            .px(px(d::BUTTON_PAD_X))
+            .rounded(px(d::BUTTON_RADIUS))
+            .border_1()
+            .border_color(danger_bg)
+            .bg(danger_bg)
+            .text_size(px(d::BUTTON_FONT))
+            .font_semibold()
+            .text_color(tokens.surface_lowest())
+            .hover(move |s| s.bg(danger_hover_bg))
+            .child(SharedString::from(t("buttons.confirm")))
+            .on_click(Self::act(cx, |this, _, _, _| this.confirm_clear_canvas()));
+
+        let content = div()
+            .flex()
+            .flex_col()
+            .w(px(d::WIDTH))
+            .max_w_full()
+            .p(px(d::MODAL_PADDING))
+            .bg(tokens.island())
+            .border_1()
+            .border_color(tokens.dialog_border())
+            .rounded(px(d::RADIUS))
+            .shadow(crate::design::modal_shadow())
+            .occlude()
+            .child(
+                div()
+                    .pb(px(d::TITLE_PAD_BOTTOM))
+                    .text_size(px(d::TITLE_FONT))
+                    .text_color(tokens.surface_text())
+                    .child(SharedString::from(t("clearCanvasDialog.title"))),
+            )
+            .child(div().h(px(1.0)).w_full().bg(tokens.dialog_border()))
+            .child(
+                div()
+                    .mt(px(d::TITLE_MARGIN_BOTTOM))
+                    .text_size(px(d::BODY_FONT))
+                    .text_color(tokens.surface_text())
+                    .child(SharedString::from(t("alerts.clearReset"))),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .justify_end()
+                    .gap(px(d::BUTTON_GAP))
+                    .w_full()
+                    .mt(px(d::BUTTON_TOP))
+                    .child(cancel)
+                    .child(confirm),
+            );
+
+        div()
+            .absolute()
+            .top(px(0.0))
+            .left(px(0.0))
+            .size_full()
+            .child(
+                div()
+                    .id("clear-dialog-backdrop")
+                    .test_support()
+                    .absolute()
+                    .top(px(0.0))
+                    .left(px(0.0))
+                    .size_full()
+                    .occlude()
+                    .bg(tokens.overlay_backdrop())
+                    .on_click(Self::act(cx, |this, _, _, _| {
+                        this.show_clear_dialog = false
+                    })),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .top(px(0.0))
+                    .left(px(0.0))
+                    .size_full()
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .justify_center()
+                    .p(px(d::MODAL_PADDING))
+                    .child(content),
+            )
+            .into_any_element()
+    }
+
     fn render_save_dialog(&self, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
         let tokens = crate::design::Tokens::for_palette(palette_of(self.document.theme));
         let t = |k: &str| self.i18n.t(k);
@@ -8409,5 +9757,658 @@ impl Editor {
                     .child(content),
             )
             .into_any_element()
+    }
+
+    /// Mirrors upstream's `TTDDialog` with the Mermaid tab active: description
+    /// with underlined diagram links, a gutter-numbered source editor on the
+    /// left and the live rendered preview on the right.
+    fn render_mermaid_dialog(&self, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
+        use crate::design::size::ttd_dialog as d;
+
+        let tokens = Tokens::for_palette(palette_of(self.document.theme));
+        let t = |key: &str| self.i18n.t(key);
+        let ttd = d::MODAL_PADDING;
+        let dialog_w = (self.viewport.0 as f32 - ttd * 2.0).clamp(560.0, d::WIDTH);
+        let dialog_h = (self.viewport.1 as f32 - ttd * 2.0).clamp(d::MIN_HEIGHT, d::MAX_HEIGHT);
+
+        let tab_button = |tab: MermaidTab,
+                          id: &'static str,
+                          label: String,
+                          badge: Option<String>|
+         -> gpui_kit::AnyElement {
+            let active = self.mermaid_tab == tab;
+            div()
+                .id(id)
+                .test_support()
+                .flex()
+                .flex_row()
+                .items_center()
+                .h(px(d::TAB_H))
+                .px(px(d::TAB_PAD_X))
+                .text_size(px(d::TAB_FONT))
+                .font_weight(FontWeight(600.0))
+                .text_color(tokens.surface_text())
+                .cursor_pointer()
+                .when(active, |s| {
+                    s.border_b(px(d::TAB_BORDER)).border_color(tokens.accent())
+                })
+                .child(SharedString::from(label))
+                .children(badge.map(|text| {
+                    div()
+                        .ml(px(d::BADGE_MARGIN_LEFT))
+                        .px(px(d::BADGE_PAD_X))
+                        .py(px(d::BADGE_PAD_Y))
+                        .rounded(px(d::BADGE_RADIUS))
+                        .bg(tokens.accent())
+                        .text_size(px(d::BADGE_FONT))
+                        .text_color(tokens.surface_lowest())
+                        .child(SharedString::from(text))
+                }))
+                .on_click(Self::act(cx, move |this, _, _, _| {
+                    this.mermaid_tab = tab;
+                }))
+                .into_any_element()
+        };
+
+        let tabs = div()
+            .flex()
+            .flex_row()
+            .w_full()
+            .mb(px(16.0))
+            .px(px(d::TABS_PAD_X))
+            .border_b(px(1.0))
+            .border_color(tokens.surface_high())
+            .child(tab_button(
+                MermaidTab::TextToDiagram,
+                "mermaid-tab-text",
+                t("labels.textToDiagram"),
+                Some(t("chat.aiBeta")),
+            ))
+            .child(tab_button(
+                MermaidTab::Mermaid,
+                "mermaid-tab-mermaid",
+                t("mermaid.label"),
+                None,
+            ));
+
+        let (description, links) = mermaid_description_runs(&t("mermaid.description"));
+        let link_color = tokens.link();
+        let mut description_highlights: Vec<(std::ops::Range<usize>, HighlightStyle)> = Vec::new();
+        let mut cursor = 0usize;
+        for range in links {
+            if cursor < range.start {
+                description_highlights.push((
+                    cursor..range.start,
+                    HighlightStyle {
+                        font_style: Some(FontStyle::Italic),
+                        ..Default::default()
+                    },
+                ));
+            }
+            description_highlights.push((
+                range.clone(),
+                HighlightStyle {
+                    color: Some(link_color.into()),
+                    font_style: Some(FontStyle::Italic),
+                    underline: Some(UnderlineStyle {
+                        thickness: px(1.0),
+                        color: Some(link_color.into()),
+                        wavy: false,
+                    }),
+                    ..Default::default()
+                },
+            ));
+            cursor = range.end;
+        }
+        if cursor < description.len() {
+            description_highlights.push((
+                cursor..description.len(),
+                HighlightStyle {
+                    font_style: Some(FontStyle::Italic),
+                    ..Default::default()
+                },
+            ));
+        }
+        let description = div()
+            .w_full()
+            .mt(px(d::DESC_TOP))
+            .mb(px(d::DESC_BOTTOM))
+            .text_size(px(d::DESC_FONT))
+            .line_height(px(d::DESC_LINE_H))
+            .italic()
+            .font_weight(FontWeight(500.0))
+            .text_color(tokens.surface_text())
+            .child(StyledText::new(description).with_highlights(description_highlights));
+
+        let body = match self.mermaid_tab {
+            MermaidTab::TextToDiagram => div()
+                .flex()
+                .flex_1()
+                .min_h(px(0.0))
+                .w_full()
+                .child(
+                    div()
+                        .flex()
+                        .flex_1()
+                        .items_center()
+                        .justify_center()
+                        .p(px(d::CONTENT_PADDING))
+                        .border_1()
+                        .border_color(tokens.dialog_border())
+                        .rounded(px(d::INPUT_RADIUS))
+                        .text_size(px(d::DESC_FONT))
+                        .text_color(tokens.hint_desc())
+                        .child(SharedString::from(
+                            t("chat.inputPlaceholder").replace("{{shortcut}}", "Enter"),
+                        )),
+                )
+                .into_any_element(),
+            MermaidTab::Mermaid => self.render_mermaid_panels(tokens, &t, cx),
+        };
+
+        let content = div()
+            .flex()
+            .flex_col()
+            .w(px(dialog_w))
+            .h(px(dialog_h))
+            .max_w_full()
+            .bg(tokens.island())
+            .border_1()
+            .border_color(tokens.dialog_border())
+            .rounded(px(d::RADIUS))
+            .shadow(crate::design::modal_shadow())
+            .occlude()
+            .overflow_hidden()
+            .child(tabs)
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .flex_1()
+                    .min_h(px(0.0))
+                    .px(px(d::PANEL_PAD_X))
+                    .pt(px(d::CONTENT_TOP_PADDING))
+                    .pb(px(d::CONTENT_BOTTOM_PADDING))
+                    .child(description)
+                    .child(body),
+            );
+
+        div()
+            .absolute()
+            .top(px(0.0))
+            .left(px(0.0))
+            .size_full()
+            .child(
+                div()
+                    .id("mermaid-dialog-backdrop")
+                    .test_support()
+                    .absolute()
+                    .top(px(0.0))
+                    .left(px(0.0))
+                    .size_full()
+                    .occlude()
+                    .bg(tokens.overlay_backdrop())
+                    .on_click(Self::act(cx, |this, _, _, _| this.close_mermaid_dialog())),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .top(px(0.0))
+                    .left(px(0.0))
+                    .size_full()
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .justify_center()
+                    .p(px(ttd))
+                    .child(content),
+            )
+            .into_any_element()
+    }
+
+    fn render_mermaid_panels(
+        &self,
+        tokens: Tokens,
+        t: &impl Fn(&str) -> String,
+        cx: &mut Context<Self>,
+    ) -> gpui_kit::AnyElement {
+        use crate::design::size::ttd_dialog as d;
+
+        let editor = self.render_mermaid_editor(tokens, cx);
+        let preview = self.render_mermaid_preview(tokens, t);
+
+        let can_insert = !self.mermaid_preview.is_empty();
+        // Upstream uses `#fff` on the primary button in light mode and
+        // `--color-gray-100` in the dark theme.
+        let button_fg = if tokens.palette.is_dark() {
+            tokens.surface_text()
+        } else {
+            rgb(0xffffff)
+        };
+        let insert_button = div()
+            .id("mermaid-insert")
+            .test_support()
+            .flex()
+            .flex_row()
+            .items_center()
+            .justify_center()
+            .gap(px(8.0))
+            .h(px(d::BUTTON_H))
+            .min_w(px(d::BUTTON_MIN_W))
+            .px(px(d::BUTTON_PAD_X))
+            .rounded(px(d::BUTTON_RADIUS))
+            .bg(tokens.accent())
+            .text_size(px(d::BUTTON_FONT))
+            .font_weight(FontWeight(600.0))
+            .text_color(button_fg)
+            .when(!can_insert, |s| s.opacity(0.5))
+            .when(can_insert, |s| {
+                s.cursor_pointer()
+                    .hover(|s| s.bg(tokens.brand_hover()))
+                    .on_click(Self::act(cx, |this, _, _, _| {
+                        this.insert_mermaid_diagram();
+                    }))
+            })
+            .child(SharedString::from(t("mermaid.button")))
+            .child(crate::icons::icon("ArrowIcon", d::BUTTON_FONT, button_fg))
+            .into_any_element();
+
+        let shortcut = |label: &str| -> gpui_kit::AnyElement {
+            div()
+                .px(px(d::SHORTCUT_PAD_X))
+                .py(px(d::SHORTCUT_PAD_Y))
+                .rounded(px(d::SHORTCUT_RADIUS))
+                .border_1()
+                .border_color(rgb(0x808080))
+                .text_size(px(d::SHORTCUT_FONT))
+                .font_family("monospace")
+                .text_color(tokens.surface_text())
+                .child(SharedString::from(label.to_string()))
+                .into_any_element()
+        };
+        let shortcut_hint = div()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap(px(d::SHORTCUT_GAP))
+            .ml(px(d::SHORTCUT_MARGIN))
+            .opacity(0.6)
+            .child(shortcut(if cfg!(target_os = "macos") {
+                "⌘"
+            } else {
+                "Ctrl"
+            }))
+            .child(shortcut(&t("keys.enter")));
+
+        // Upstream reserves the same action-row height in the left panel (with
+        // `visibility: hidden`), keeping both panels exactly the same height.
+        let action_row = |button: gpui_kit::AnyElement,
+                          shortcut: gpui_kit::AnyElement,
+                          hidden: bool|
+         -> gpui_kit::AnyElement {
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .justify_start()
+                .flex_shrink_0()
+                .w_full()
+                .h(px(d::BUTTON_H + d::BUTTON_TOP + d::BUTTON_BOTTOM))
+                .pt(px(d::BUTTON_TOP))
+                .pb(px(d::BUTTON_BOTTOM))
+                .when(hidden, |s| s.opacity(0.0))
+                .child(button)
+                .child(shortcut)
+                .into_any_element()
+        };
+
+        div()
+            .flex()
+            .flex_row()
+            .flex_1()
+            .min_h(px(0.0))
+            .w_full()
+            .gap(px(d::PANEL_GAP))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .flex_1()
+                    .min_w(px(0.0))
+                    .min_h(px(0.0))
+                    .child(editor)
+                    .child(action_row(
+                        div().into_any_element(),
+                        div().into_any_element(),
+                        true,
+                    )),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .flex_1()
+                    .min_w(px(0.0))
+                    .min_h(px(0.0))
+                    .child(preview)
+                    .child(action_row(
+                        insert_button,
+                        shortcut_hint.into_any_element(),
+                        false,
+                    )),
+            )
+            .into_any_element()
+    }
+
+    fn render_mermaid_editor(
+        &self,
+        tokens: Tokens,
+        cx: &mut Context<Self>,
+    ) -> gpui_kit::AnyElement {
+        use crate::design::size::ttd_dialog as d;
+
+        let colors = MermaidCodeColors::for_dark(tokens.palette.is_dark());
+        let base = colors.text;
+        let selected_bg = tokens.selected_bg();
+        let caret_color = colors.caret;
+        let (selection_start, selection_end) = self.mermaid_range();
+        let has_selection = selection_start < selection_end;
+        let caret = self.mermaid_caret.min(self.mermaid_text.len());
+
+        let source = self.mermaid_text.as_str();
+        let mut rows = Vec::new();
+        let mut line_start = 0;
+        let mut line_index = 0usize;
+        loop {
+            let line_end = mermaid_line_end(source, line_start);
+            let line = &source[line_start..line_end];
+            let caret_in_line = caret >= line_start && caret <= line_end;
+            let caret_column = caret.saturating_sub(line_start).min(line.len());
+
+            let token_runs = mermaid_token_runs(line, &colors);
+            let mut cuts = vec![0usize, line.len()];
+            for (range, _) in &token_runs {
+                cuts.push(range.start);
+                cuts.push(range.end);
+            }
+            if has_selection {
+                let start = selection_start.max(line_start).min(line_end) - line_start;
+                let end = selection_end.max(line_start).min(line_end) - line_start;
+                cuts.push(start);
+                cuts.push(end);
+            }
+            if caret_in_line {
+                cuts.push(caret_column);
+            }
+            cuts.sort_unstable();
+            cuts.dedup();
+
+            let mut segments = Vec::new();
+            for pair in cuts.windows(2) {
+                let (start, end) = (pair[0], pair[1]);
+                if start >= end {
+                    continue;
+                }
+                let color = token_runs
+                    .iter()
+                    .find(|(range, _)| range.start <= start && end <= range.end)
+                    .map(|(_, color)| *color);
+                let selected = has_selection
+                    && start + line_start >= selection_start
+                    && end + line_start <= selection_end;
+                segments.push((start, end, color, selected));
+            }
+
+            let highlights = |from: usize, to: usize| {
+                let mut highlights = Vec::new();
+                for &(start, end, color, selected) in &segments {
+                    if end <= from || start >= to {
+                        continue;
+                    }
+                    let start = start.max(from) - from;
+                    let end = end.min(to) - from;
+                    if start >= end {
+                        continue;
+                    }
+                    highlights.push((
+                        start..end,
+                        HighlightStyle {
+                            color: color.map(Into::into),
+                            background_color: selected.then(|| selected_bg.into()),
+                            ..Default::default()
+                        },
+                    ));
+                }
+                highlights
+            };
+
+            let mut row = div()
+                .id(SharedString::from(format!("mermaid-line-{line_index}")))
+                .flex()
+                .flex_row()
+                .items_center()
+                .min_h(px(d::INPUT_LINE_H))
+                .w_full()
+                .text_size(px(d::INPUT_FONT))
+                .line_height(px(d::INPUT_LINE_H))
+                .font_family(MERMAID_CODE_FONT)
+                .text_color(base)
+                .on_click(Self::act(cx, move |this, _, _, _| {
+                    let len = this.mermaid_text.len();
+                    let start = mermaid_line_start(&this.mermaid_text, len.min(line_start));
+                    let end = mermaid_line_end(&this.mermaid_text, start);
+                    this.mermaid_caret = end;
+                    this.mermaid_anchor = end;
+                }))
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .flex()
+                        .justify_end()
+                        .w(px(d::GUTTER_W))
+                        .h(px(d::INPUT_LINE_H))
+                        .pr(px(d::GUTTER_GAP))
+                        .text_size(px(d::INPUT_FONT))
+                        .text_color(colors.gutter)
+                        .child(SharedString::from(format!("{}", line_index + 1))),
+                );
+
+            if caret_in_line {
+                let (prefix, suffix) = line.split_at(caret_column);
+                if !prefix.is_empty() {
+                    row = row.child(
+                        StyledText::new(prefix).with_highlights(highlights(0, caret_column)),
+                    );
+                }
+                row = row.child(
+                    div()
+                        .flex_shrink_0()
+                        .w(px(2.0))
+                        .h(px(d::INPUT_LINE_H))
+                        .bg(caret_color),
+                );
+                if !suffix.is_empty() {
+                    row = row.child(
+                        StyledText::new(suffix)
+                            .with_highlights(highlights(caret_column, line.len())),
+                    );
+                }
+            } else if !line.is_empty() {
+                row = row.child(StyledText::new(line).with_highlights(highlights(0, line.len())));
+            }
+            rows.push(row);
+
+            if line_end >= source.len() {
+                break;
+            }
+            line_start = line_end + 1;
+            line_index += 1;
+        }
+
+        div()
+            .flex()
+            .flex_col()
+            .flex_1()
+            .min_h(px(0.0))
+            .w_full()
+            .border_1()
+            .border_color(tokens.dialog_border())
+            .rounded(px(d::INPUT_RADIUS))
+            .bg(colors.background)
+            .overflow_hidden()
+            .child(
+                div()
+                    .id("mermaid-input")
+                    .test_support()
+                    .flex()
+                    .flex_col()
+                    .flex_1()
+                    .min_h(px(0.0))
+                    .w_full()
+                    .py(px(d::INPUT_PAD))
+                    .overflow_y_scroll()
+                    .children(rows),
+            )
+            .into_any_element()
+    }
+
+    fn render_mermaid_preview(
+        &self,
+        tokens: Tokens,
+        t: &impl Fn(&str) -> String,
+    ) -> gpui_kit::AnyElement {
+        use crate::design::size::ttd_dialog as d;
+
+        let dark = tokens.palette.is_dark();
+        let fit_bounds = {
+            let refs: Vec<&Element> = self.mermaid_preview.iter().collect();
+            crate::core::bounds::common_bounds(&refs)
+                .map(|b| (b.min_x, b.min_y, b.max_x - b.min_x, b.max_y - b.min_y))
+        };
+        let mut elements = self.mermaid_preview.clone();
+        if dark {
+            darken_element_colors(&mut elements);
+        }
+        let images = self.image_sources.clone();
+        let background = if dark { rgb(0x121212) } else { rgb(0xffffff) };
+        let paint = canvas(
+            move |_bounds, _window, _cx| (),
+            move |bounds, _state, window, cx| {
+                window.paint_quad(quad(
+                    bounds,
+                    Corners::default(),
+                    background,
+                    Edges::default(),
+                    transparent_black(),
+                    BorderStyle::default(),
+                ));
+                let Some((min_x, min_y, width, height)) = fit_bounds else {
+                    return;
+                };
+                if width <= 0.0 || height <= 0.0 {
+                    return;
+                }
+                let available_w = bounds.size.width.to_f64();
+                let available_h = bounds.size.height.to_f64();
+                let pad = d::PREVIEW_PAD as f64;
+                let zoom = ((available_w - pad * 2.0) / width)
+                    .min((available_h - pad * 2.0) / height)
+                    .max(0.01);
+                let scroll_x =
+                    bounds.origin.x.to_f64() + (available_w - width * zoom) / 2.0 - min_x * zoom;
+                let scroll_y =
+                    bounds.origin.y.to_f64() + (available_h - height * zoom) / 2.0 - min_y * zoom;
+                crate::paint_elements(&elements, zoom, scroll_x, scroll_y, &images, window, cx);
+            },
+        )
+        .absolute()
+        .top(px(0.0))
+        .left(px(0.0))
+        .size_full();
+
+        let overlay = if let Some(message) = &self.mermaid_error {
+            div()
+                .absolute()
+                .top(px(0.0))
+                .left(px(0.0))
+                .size_full()
+                .flex()
+                .flex_col()
+                .items_center()
+                .justify_center()
+                .gap(px(8.0))
+                .p(px(24.0))
+                .child(
+                    div()
+                        .text_size(px(14.0))
+                        .font_bold()
+                        .text_color(tokens.danger())
+                        .child(SharedString::from(t("chat.errors.mermaidParseError"))),
+                )
+                .child(
+                    div()
+                        .w_full()
+                        .text_size(px(12.0))
+                        .font_family("monospace")
+                        .text_color(tokens.gray_60())
+                        .child(SharedString::from(message.clone())),
+                )
+                .into_any_element()
+        } else if self.mermaid_text.trim().is_empty() {
+            div()
+                .absolute()
+                .top(px(0.0))
+                .left(px(0.0))
+                .size_full()
+                .flex()
+                .items_center()
+                .justify_center()
+                .p(px(24.0))
+                .text_size(px(13.0))
+                .text_color(tokens.gray_60())
+                .child(SharedString::from(t("mermaid.inputPlaceholder")))
+                .into_any_element()
+        } else {
+            div().into_any_element()
+        };
+
+        div()
+            .id("mermaid-preview")
+            .test_support()
+            .relative()
+            .flex_1()
+            .min_h(px(0.0))
+            .w_full()
+            .rounded(px(d::PREVIEW_RADIUS))
+            .border(px(d::PREVIEW_BORDER))
+            .border_color(if tokens.palette.is_dark() {
+                rgb(0x5c5c5c)
+            } else {
+                rgb(0xd6d6d6)
+            })
+            .bg(background)
+            .overflow_hidden()
+            .child(paint)
+            .child(overlay)
+            .into_any_element()
+    }
+}
+
+#[cfg(test)]
+mod toolbar_tests {
+    use super::extra_tools_trigger;
+    use crate::ui::Tool;
+
+    #[test]
+    fn extra_tools_trigger_mirrors_the_active_extra_tool() {
+        assert_eq!(extra_tools_trigger(Tool::Image), ("ImageIcon", true));
+        assert_eq!(extra_tools_trigger(Tool::Frame), ("frameToolIcon", true));
+        assert_eq!(
+            extra_tools_trigger(Tool::Laser),
+            ("laserPointerToolIcon", true)
+        );
+        assert_eq!(extra_tools_trigger(Tool::Embeddable), ("EmbedIcon", true));
+        assert_eq!(extra_tools_trigger(Tool::Selection), ("DotsIcon", false));
+        assert_eq!(extra_tools_trigger(Tool::Rectangle), ("DotsIcon", false));
     }
 }

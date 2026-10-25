@@ -1,13 +1,14 @@
-use gpui_kit::*;
+use gpui_kit::{base::ElementExt as _, *};
 
 use crate::{
     core::{
         arrowhead::Arrowhead,
         types::{FillStyle, FontFamily, Roundness, RoundnessType, StrokeStyle, TextAlign},
     },
-    design::{Tokens, island_shadow, size},
+    design::{Tokens, island_shadow, link_dialog_shadow, size},
     editor::{ColorTarget, Editor},
     icons::icon,
+    state::Tool,
 };
 
 fn tokens_of(editor: &Editor) -> Tokens {
@@ -65,43 +66,6 @@ fn ctrl(
     }
 }
 
-fn ctrl_text(
-    id: impl Into<ElementId>,
-    label: &str,
-    checked: bool,
-    tokens: Tokens,
-) -> Stateful<Div> {
-    let fg = if checked {
-        tokens.selected_fg()
-    } else {
-        tokens.surface_text()
-    };
-    let base = div()
-        .id(id)
-        .flex_shrink_0()
-        .flex()
-        .items_center()
-        .justify_center()
-        .h(px(size::BUTTON))
-        .min_w(px(size::BUTTON))
-        .px(px(6.0))
-        .rounded(px(size::RADIUS_MD))
-        .border_1()
-        .border_color(if checked {
-            tokens.selected_bg()
-        } else {
-            tokens.border()
-        })
-        .text_size(px(11.0))
-        .text_color(fg)
-        .child(SharedString::from(label.to_owned()));
-    if checked {
-        base.bg(tokens.selected_bg())
-    } else {
-        base.hover(move |s| s.bg(tokens.hover()))
-    }
-}
-
 fn swatch(id: String, color: Rgba, checked: bool, tokens: Tokens) -> Stateful<Div> {
     let swatch = div()
         .id(id)
@@ -127,6 +91,37 @@ fn row(children: Vec<AnyElement>) -> Div {
         .flex_wrap()
         .gap(px(8.0))
         .children(children)
+}
+
+/// Upstream's fieldset `<legend>`: 12px regular text in the surface colour.
+fn legend(id: &'static str, label: &str, tokens: Tokens) -> impl IntoElement {
+    div()
+        .id(id)
+        .test_support()
+        .text_size(px(size::prop::LEGEND_FONT))
+        .text_color(tokens.surface_text())
+        .child(SharedString::from(label.to_owned()))
+}
+
+/// A legend above its row, spaced like upstream's `legend { margin-bottom }`.
+fn fieldset(id: &'static str, label: &str, body: impl IntoElement, tokens: Tokens) -> Div {
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(size::prop::LEGEND_GAP))
+        .child(legend(id, label, tokens))
+        .child(body)
+}
+
+/// A stack of rows sharing one legend, used where upstream keeps two button
+/// rows inside a single fieldset.
+fn fieldset_rows(id: &'static str, label: &str, rows: Vec<Div>, tokens: Tokens) -> Div {
+    fieldset(
+        id,
+        label,
+        div().flex().flex_col().gap(px(8.0)).children(rows),
+        tokens,
+    )
 }
 
 fn eye_dropper_trigger(
@@ -256,6 +251,10 @@ fn color_picker_row(
 ) -> Div {
     let picks: &[&'static str] = if stroke_target(target) {
         &crate::theme::STROKE_TOP_PICKS
+    } else if editor.document.tool == Tool::BucketFill {
+        // The bucket hides `transparent` because an invisible fill would be a
+        // no-op; upstream swaps it for white.
+        &crate::theme::BUCKET_FILL_TOP_PICKS
     } else {
         &crate::theme::BACKGROUND_TOP_PICKS
     };
@@ -277,7 +276,7 @@ fn color_picker_row(
             )
             .on_click(Editor::act(cx, move |this, _, _, _| match target {
                 ColorTarget::Stroke => this.document.set_selected_stroke_color(c),
-                ColorTarget::Background => this.document.set_selected_background_color(c),
+                ColorTarget::Background => this.set_background_color(c),
                 ColorTarget::CanvasBackground => {
                     this.document.view_background_color = c.to_string()
                 }
@@ -459,23 +458,201 @@ fn font_picker_row(
         .child(trigger)
 }
 
-pub fn render_properties_panel(editor: &mut Editor, cx: &mut Context<Editor>) -> gpui_kit::Div {
-    let cx = &*cx;
+/// Marker payload for the opacity drag, whose only job is to keep the row's
+/// `on_drag_move` firing while the pointer travels past the track.
+#[derive(Clone)]
+struct OpacityDrag;
+
+impl Render for OpacityDrag {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        Empty
+    }
+}
+
+/// Upstream's `Range` row: the value printed under the thumb, the minimum
+/// under the left end, a 4px track whose filled half runs up to a 16px round
+/// thumb. The thumb travels between the track's ends inset by its own radius,
+/// which is where the browser stops a native range input too.
+fn opacity_row(editor: &mut Editor, tokens: Tokens, cx: &mut Context<Editor>) -> Div {
+    // With the bucket armed and nothing selected the slider edits the fill's
+    // shared style instead of an element.
+    let bucket = editor.document.selected.is_empty() && editor.document.tool == Tool::BucketFill;
+    let opacity = if bucket {
+        editor.document.style.opacity
+    } else {
+        editor
+            .document
+            .selected_elements()
+            .first()
+            .map(|element| element.base().opacity)
+            .unwrap_or(100.0)
+    };
+    let progress = (opacity / 100.0).clamp(0.0, 1.0) as f32;
+    let radius = size::prop::SLIDER_THUMB / 2.0;
+
+    let bubble = (opacity > 0.0).then(|| {
+        div()
+            .absolute()
+            .bottom(px(0.0))
+            .left(relative(progress))
+            .ml(px(-size::prop::SLIDER_VALUE_WIDTH / 2.0))
+            .w(px(size::prop::SLIDER_VALUE_WIDTH))
+            .flex()
+            .justify_center()
+            .text_size(px(size::prop::SLIDER_FONT))
+            .text_color(tokens.surface_text())
+            .child(SharedString::from(format!("{}", opacity as i32)))
+            .into_any_element()
+    });
+
+    // The travel of the thumb, recorded so a pointer position can be mapped
+    // back onto a value.
+    let span = div()
+        .absolute()
+        .left(px(radius))
+        .right(px(radius))
+        .top(px(0.0))
+        .bottom(px(0.0))
+        .on_prepaint({
+            let entity = cx.entity().downgrade();
+            move |bounds, _, cx| {
+                entity
+                    .update(cx, |editor, _| editor.set_opacity_track_bounds(bounds))
+                    .ok();
+            }
+        })
+        .child(
+            div()
+                .absolute()
+                .top(px(-radius))
+                .left(relative(progress))
+                .ml(px(-radius))
+                .size(px(size::prop::SLIDER_THUMB))
+                .rounded(px(radius))
+                .bg(tokens.slider_thumb()),
+        );
+
+    let track = div()
+        .relative()
+        .w_full()
+        .h(px(size::prop::SLIDER_HEIGHT))
+        .rounded(px(size::prop::SLIDER_RADIUS))
+        .bg(tokens.slider_rest())
+        .child(
+            div()
+                .absolute()
+                .top(px(0.0))
+                .bottom(px(0.0))
+                .left(px(0.0))
+                .right(relative(1.0 - progress))
+                .rounded(px(size::prop::SLIDER_RADIUS))
+                .bg(tokens.slider_track()),
+        )
+        .child(span);
+
+    fieldset(
+        "legend-opacity",
+        &editor.i18n.t("labels.opacity"),
+        div()
+            .id("opacity-slider")
+            .test_support()
+            .relative()
+            .w_full()
+            .pt(px(size::prop::SLIDER_TOP))
+            .pb(px(size::prop::SLIDER_BOTTOM))
+            .on_mouse_down(
+                MouseButton::Left,
+                Editor::act(cx, |this, event: &MouseDownEvent, _, _| {
+                    this.start_opacity_drag(event.position);
+                }),
+            )
+            .on_drag(OpacityDrag, |drag, _, _, cx| {
+                cx.stop_propagation();
+                cx.new(|_| drag.clone())
+            })
+            .on_drag_move(Editor::act(
+                cx,
+                |this, event: &DragMoveEvent<OpacityDrag>, _, _| {
+                    this.drag_opacity(event.event.position);
+                },
+            ))
+            .child(track)
+            .child(
+                div()
+                    .absolute()
+                    .left(px(radius))
+                    .right(px(radius))
+                    .bottom(px(0.0))
+                    .children(bubble),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .left(px(size::prop::SLIDER_ZERO_LEFT))
+                    .bottom(px(0.0))
+                    .text_size(px(size::prop::SLIDER_FONT))
+                    .text_color(tokens.surface_text())
+                    .child(SharedString::from("0")),
+            ),
+        tokens,
+    )
+}
+
+pub fn render_properties_panel(
+    editor: &mut Editor,
+    cx: &mut Context<Editor>,
+) -> gpui_kit::Stateful<gpui_kit::Div> {
     let tokens = tokens_of(editor);
     let is_empty = editor.document.selected.is_empty();
 
     let mut panel = div()
+        .id("properties-panel")
         .w(px(size::PROPERTIES_PANEL_WIDTH))
         .flex()
         .flex_col()
         .gap(px(10.0))
         .p(px(12.0))
-        .overflow_hidden()
+        .overflow_y_scroll()
         .bg(tokens.island())
         .rounded(px(size::RADIUS_LG))
         .shadow(island_shadow());
 
     if is_empty {
+        // The bucket tool configures only the fill it paints: its colour, fill
+        // style and opacity. Upstream hides every stroke property here.
+        if editor.document.tool == Tool::BucketFill {
+            let color = editor.bucket_fill_color();
+            let fill_style = editor.document.style.fill_style;
+            let fill_controls: Vec<AnyElement> = [
+                (FillStyle::Hachure, "FillHachureIcon", "fill-hachure"),
+                (FillStyle::CrossHatch, "FillCrossHatchIcon", "fill-cross"),
+                (FillStyle::Solid, "FillSolidIcon", "fill-solid"),
+            ]
+            .into_iter()
+            .map(|(style, icon_name, id)| {
+                ctrl(id, icon_name, fill_style == style, tokens)
+                    .on_click(Editor::act(cx, move |this, _, _, _| {
+                        this.document.style.fill_style = style;
+                    }))
+                    .into_any_element()
+            })
+            .collect();
+
+            panel = panel
+                .child(fieldset(
+                    "legend-background",
+                    &editor.i18n.t("labels.background"),
+                    color_picker_row(editor, ColorTarget::Background, &color, tokens, cx),
+                    tokens,
+                ))
+                .child(fieldset(
+                    "legend-fill",
+                    &editor.i18n.t("labels.fill"),
+                    row(fill_controls),
+                    tokens,
+                ))
+                .child(opacity_row(editor, tokens, cx));
+        }
         return panel;
     }
 
@@ -489,6 +666,15 @@ pub fn render_properties_panel(editor: &mut Editor, cx: &mut Context<Editor>) ->
         return panel;
     };
     let base = element.base().clone();
+
+    // Frames expose only opacity, layer order and actions, mirroring the
+    // shape-action predicates upstream.
+    let is_frame = editor.document.selected_elements().iter().all(|e| {
+        matches!(
+            e,
+            crate::core::element::Element::Frame(_) | crate::core::element::Element::MagicFrame(_)
+        )
+    });
 
     let stroke_color = base.stroke_color.clone();
     let background_color = base.background_color.clone();
@@ -565,31 +751,42 @@ pub fn render_properties_panel(editor: &mut Editor, cx: &mut Context<Editor>) ->
             .on_click(Editor::act(cx, |this, _, _, _| this.lock_selected(true)));
 
         panel = panel
-            .child(row(align_controls))
-            .child(row(distribute_controls))
-            .child(row(vec![
-                group_control.into_any_element(),
-                lock_control.into_any_element(),
-            ]))
+            .child(fieldset_rows(
+                "legend-align",
+                &editor.i18n.t("labels.align"),
+                vec![row(align_controls), row(distribute_controls)],
+                tokens,
+            ))
+            .child(fieldset(
+                "legend-actions",
+                &editor.i18n.t("labels.actions"),
+                row(vec![
+                    group_control.into_any_element(),
+                    lock_control.into_any_element(),
+                ]),
+                tokens,
+            ))
             .child(rule(tokens));
     }
 
-    panel = panel
-        .child(color_picker_row(
-            editor,
-            ColorTarget::Stroke,
-            &stroke_color,
-            tokens,
-            cx,
-        ))
-        .child(color_picker_row(
-            editor,
-            ColorTarget::Background,
-            &background_color,
-            tokens,
-            cx,
-        ))
-        .child(rule(tokens));
+    if !is_frame {
+        panel = panel
+            .child(color_picker_row(
+                editor,
+                ColorTarget::Stroke,
+                &stroke_color,
+                tokens,
+                cx,
+            ))
+            .child(color_picker_row(
+                editor,
+                ColorTarget::Background,
+                &background_color,
+                tokens,
+                cx,
+            ))
+            .child(rule(tokens));
+    }
 
     let fill_style = base.fill_style;
     let fill_controls: Vec<AnyElement> = [
@@ -656,11 +853,33 @@ pub fn render_properties_panel(editor: &mut Editor, cx: &mut Context<Editor>) ->
     })
     .collect();
 
-    panel = panel
-        .child(row(fill_controls))
-        .child(row(width_controls))
-        .child(row(stroke_controls))
-        .child(row(sloppiness_controls));
+    if !is_frame {
+        panel = panel
+            .child(fieldset(
+                "legend-fill",
+                &editor.i18n.t("labels.fill"),
+                row(fill_controls),
+                tokens,
+            ))
+            .child(fieldset(
+                "legend-stroke-width",
+                &editor.i18n.t("labels.strokeWidth"),
+                row(width_controls),
+                tokens,
+            ))
+            .child(fieldset(
+                "legend-stroke-style",
+                &editor.i18n.t("labels.strokeStyle"),
+                row(stroke_controls),
+                tokens,
+            ))
+            .child(fieldset(
+                "legend-sloppiness",
+                &editor.i18n.t("labels.sloppiness"),
+                row(sloppiness_controls),
+                tokens,
+            ));
+    }
 
     let is_text = matches!(element, crate::core::element::Element::Text(_));
     let is_linear = matches!(
@@ -668,7 +887,7 @@ pub fn render_properties_panel(editor: &mut Editor, cx: &mut Context<Editor>) ->
         crate::core::element::Element::Line(_) | crate::core::element::Element::Arrow(_)
     );
 
-    if !is_text && !is_linear {
+    if !is_text && !is_linear && !is_frame {
         let roundness = base.roundness.and_then(|r| r.value);
         let sharp = ctrl("edge-sharp", "EdgeSharpIcon", roundness.is_none(), tokens).on_click(
             Editor::act(cx, |this, _, _, _| {
@@ -684,10 +903,12 @@ pub fn render_properties_panel(editor: &mut Editor, cx: &mut Context<Editor>) ->
             }),
         );
         panel = panel
-            .child(row(vec![
-                sharp.into_any_element(),
-                rounded.into_any_element(),
-            ]))
+            .child(fieldset(
+                "legend-edges",
+                &editor.i18n.t("labels.edges"),
+                row(vec![sharp.into_any_element(), rounded.into_any_element()]),
+                tokens,
+            ))
             .child(rule(tokens));
     }
 
@@ -742,8 +963,12 @@ pub fn render_properties_panel(editor: &mut Editor, cx: &mut Context<Editor>) ->
             .collect();
 
         panel = panel
-            .child(row(start_controls))
-            .child(row(end_controls))
+            .child(fieldset_rows(
+                "legend-arrowheads",
+                &editor.i18n.t("labels.arrowheads"),
+                vec![row(start_controls), row(end_controls)],
+                tokens,
+            ))
             .child(rule(tokens));
     }
 
@@ -795,23 +1020,9 @@ pub fn render_properties_panel(editor: &mut Editor, cx: &mut Context<Editor>) ->
             .child(rule(tokens));
     }
 
-    let opacity = base.opacity;
-    let opacity_controls: Vec<AnyElement> = [25.0f64, 50.0, 75.0, 100.0]
-        .into_iter()
-        .map(|o| {
-            ctrl_text(
-                format!("opacity-{}", o as i32),
-                &format!("{}%", o as i32),
-                (opacity - o).abs() < 0.01,
-                tokens,
-            )
-            .on_click(Editor::act(cx, move |this, _, _, _| {
-                this.document.set_selected_opacity(o);
-            }))
-            .into_any_element()
-        })
-        .collect();
-    panel = panel.child(row(opacity_controls)).child(rule(tokens));
+    panel = panel
+        .child(opacity_row(editor, tokens, cx))
+        .child(rule(tokens));
 
     let layer_controls: Vec<AnyElement> = [
         ("layers-front", "BringToFrontIcon", LayerAction::Front),
@@ -835,22 +1046,6 @@ pub fn render_properties_panel(editor: &mut Editor, cx: &mut Context<Editor>) ->
     })
     .collect();
 
-    let locked = base.locked;
-    let lock_control = ctrl(
-        "single-lock",
-        if locked { "LockedIcon" } else { "UnlockedIcon" },
-        locked,
-        tokens,
-    )
-    .on_click(Editor::act(cx, |this, _, _, _| {
-        let locked = this
-            .document
-            .selected_elements()
-            .first()
-            .map(|e| e.base().locked)
-            .unwrap_or(false);
-        this.lock_selected(!locked);
-    }));
     let duplicate_control = ctrl("single-dup", "DuplicateIcon", false, tokens)
         .on_click(Editor::act(cx, |this, _, _, _| this.duplicate_selected()));
     let delete_control = ctrl("single-del", "TrashIcon", false, tokens)
@@ -860,12 +1055,23 @@ pub fn render_properties_panel(editor: &mut Editor, cx: &mut Context<Editor>) ->
     let link_control = ctrl("single-link", "LinkIcon", has_link, tokens)
         .on_click(Editor::act(cx, |this, _, _, _| this.open_link_dialog()));
 
-    panel.child(row(layer_controls)).child(row(vec![
-        link_control.into_any_element(),
-        lock_control.into_any_element(),
-        duplicate_control.into_any_element(),
-        delete_control.into_any_element(),
-    ]))
+    panel
+        .child(fieldset(
+            "legend-layers",
+            &editor.i18n.t("labels.layers"),
+            row(layer_controls),
+            tokens,
+        ))
+        .child(fieldset(
+            "legend-actions",
+            &editor.i18n.t("labels.actions"),
+            row(vec![
+                duplicate_control.into_any_element(),
+                delete_control.into_any_element(),
+                link_control.into_any_element(),
+            ]),
+            tokens,
+        ))
 }
 
 fn picker_surface(tokens: Tokens, width: f32) -> Div {
@@ -1196,23 +1402,14 @@ pub(crate) fn render_font_picker(editor: &Editor, cx: &Context<Editor>) -> Div {
     surface
 }
 
-fn dialog_button(
+fn link_icon_button(
     id: &'static str,
-    label: &str,
-    primary: bool,
+    icon_name: &'static str,
+    color: Rgba,
     tokens: Tokens,
     cx: &Context<Editor>,
+    action: impl Fn(&mut Editor) + 'static,
 ) -> crate::chrome::Button {
-    let fill = if primary {
-        tokens.accent()
-    } else {
-        tokens.island()
-    };
-    let fg = if primary {
-        rgb(0xffffff)
-    } else {
-        tokens.surface_text()
-    };
     div()
         .id(id)
         .test_support()
@@ -1220,22 +1417,11 @@ fn dialog_button(
         .flex()
         .items_center()
         .justify_center()
-        .h(px(size::BUTTON))
-        .px(px(12.0))
-        .rounded(px(size::RADIUS_LG))
-        .border_1()
-        .border_color(if primary { fill } else { tokens.border() })
-        .bg(fill)
-        .text_size(px(14.0))
-        .text_color(fg)
-        .child(SharedString::from(label.to_owned()))
-        .on_click(Editor::act(cx, move |this, _, _, _| {
-            if primary {
-                this.confirm_link();
-            } else {
-                this.cancel_link_dialog();
-            }
-        }))
+        .size(px(size::BUTTON))
+        .rounded(px(size::RADIUS_MD))
+        .hover(move |s| s.bg(tokens.hover()))
+        .child(icon(icon_name, size::ICON, color))
+        .on_click(Editor::act(cx, move |this, _, _, _| action(this)))
 }
 
 pub(crate) fn render_link_dialog(editor: &Editor, cx: &Context<Editor>) -> Div {
@@ -1243,94 +1429,123 @@ pub(crate) fn render_link_dialog(editor: &Editor, cx: &Context<Editor>) -> Div {
     let t = |key: &str| editor.i18n.t(key);
     let has_link = editor.selected_link().is_some();
     let field = editor.link_input().to_string();
+    let empty = field.is_empty();
+    // Upstream keeps the trash icon away from embeddables, where clearing the
+    // link would leave an empty frame with no way to restore it from here.
+    let embeddable = editor
+        .document
+        .selected_elements()
+        .first()
+        .map(|element| element.kind() == crate::core::element::ElementType::Embeddable)
+        .unwrap_or(false);
 
-    let mut input_row = div().flex().flex_row().items_center().w_full().child(
-        div()
-            .id("link-input")
-            .test_support()
-            .flex_1()
-            .flex()
-            .flex_row()
-            .items_center()
-            .h(px(size::BUTTON))
-            .px(px(8.0))
-            .border_1()
-            .border_color(tokens.border())
-            .rounded(px(size::RADIUS_LG))
-            .text_size(px(14.0))
-            .text_color(tokens.surface_text())
-            .child(SharedString::from(field.clone())),
-    );
-
-    if has_link && !field.is_empty() {
-        input_row = input_row.child(
-            div()
-                .id("link-remove")
-                .test_support()
-                .flex_shrink_0()
-                .flex()
-                .items_center()
-                .justify_center()
-                .ml(px(16.0))
-                .size(px(size::BUTTON))
-                .rounded(px(size::RADIUS_MD))
-                .hover(move |s| s.bg(tokens.hover()))
-                .child(icon("TrashIcon", size::ICON, rgb(0xff6b6b)))
-                .on_click(Editor::act(cx, |this, _, _, _| this.clear_link_input())),
-        );
-    }
-
-    div()
+    let mut popup = div()
         .flex()
-        .flex_col()
+        .flex_row()
+        .items_center()
         .w(px(size::link_dialog::WIDTH))
+        .min_h(px(size::link_dialog::MIN_HEIGHT))
         .p(px(size::link_dialog::PADDING))
         .bg(tokens.island())
         .rounded(px(size::link_dialog::RADIUS))
-        .shadow(island_shadow())
-        .occlude()
-        .child(
+        .shadow(link_dialog_shadow())
+        .occlude();
+
+    if editor.is_link_editing() {
+        popup = popup.child(
             div()
-                .flex()
-                .flex_col()
-                .mb(px(size::link_dialog::PADDING))
-                .child(
-                    div()
-                        .text_size(px(20.0))
-                        .text_color(tokens.surface_text())
-                        .child(SharedString::from(t("elementLink.title"))),
-                )
-                .child(
-                    div()
-                        .mt(px(8.0))
-                        .text_size(px(14.0))
-                        .text_color(tokens.surface_text())
-                        .child(SharedString::from(t("elementLink.desc"))),
-                ),
-        )
-        .child(input_row)
-        .child(
-            div()
+                .id("link-input")
+                .test_support()
+                .flex_1()
                 .flex()
                 .flex_row()
-                .justify_end()
-                .gap(px(10.0))
-                .mt(px(size::link_dialog::PADDING))
-                .child(dialog_button(
-                    "link-cancel",
-                    &t("buttons.cancel"),
-                    false,
-                    tokens,
-                    cx,
-                ))
-                .child(dialog_button(
-                    "link-confirm",
-                    &t("buttons.confirm"),
-                    true,
-                    tokens,
-                    cx,
-                )),
-        )
+                .items_center()
+                .h(px(size::link_dialog::INPUT_HEIGHT))
+                .px(px(8.0))
+                .text_size(px(size::link_dialog::FONT))
+                .text_color(if empty {
+                    tokens.shortcut_text()
+                } else {
+                    tokens.surface_text()
+                })
+                .child(SharedString::from(if empty {
+                    t("labels.link.hint")
+                } else {
+                    field.clone()
+                })),
+        );
+
+        if has_link && !empty && !embeddable {
+            popup = popup.child(link_icon_button(
+                "link-remove",
+                "TrashIcon",
+                rgb(0xff6b6b),
+                tokens,
+                cx,
+                |this| this.clear_link_input(),
+            ));
+        }
+
+        popup.child(link_icon_button(
+            "link-confirm",
+            "elementLinkIcon",
+            tokens.surface_text(),
+            tokens,
+            cx,
+            |this| this.confirm_link(),
+        ))
+    } else {
+        popup = popup.child(
+            div()
+                .id("link-label")
+                .test_support()
+                .flex_1()
+                .flex()
+                .items_center()
+                .h(px(size::link_dialog::INPUT_HEIGHT))
+                .px(px(8.0))
+                .text_size(px(size::link_dialog::FONT))
+                .text_color(tokens.surface_text())
+                .truncate()
+                .child(SharedString::from(if empty {
+                    t("labels.link.empty")
+                } else {
+                    field.clone()
+                })),
+        );
+
+        popup = popup
+            .child(link_icon_button(
+                "link-edit",
+                "FreedrawIcon",
+                tokens.surface_text(),
+                tokens,
+                cx,
+                |this| this.begin_link_edit(),
+            ))
+            // Upstream opens the element-link selector here; this app has no
+            // selector yet, so the button falls back to editing the link.
+            .child(link_icon_button(
+                "link-target",
+                "elementLinkIcon",
+                tokens.surface_text(),
+                tokens,
+                cx,
+                |this| this.begin_link_edit(),
+            ));
+
+        if has_link && !embeddable {
+            popup = popup.child(link_icon_button(
+                "link-remove",
+                "TrashIcon",
+                rgb(0xff6b6b),
+                tokens,
+                cx,
+                |this| this.remove_link(),
+            ));
+        }
+        popup
+    }
 }
 
 #[derive(Clone, Copy)]

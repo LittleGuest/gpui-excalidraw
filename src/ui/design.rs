@@ -56,6 +56,12 @@ pub struct Tokens {
 
     pub swatch_outline: u32,
 
+    pub slider_track: u32,
+
+    pub danger: u32,
+
+    pub danger_hover: u32,
+
     pub input_label: u32,
 
     pub grid: u32,
@@ -79,6 +85,9 @@ pub const LIGHT: Tokens = Tokens {
     primary_darkest: 0x4a47b1,
     primary_light_darker: 0xd7d5ff,
     swatch_outline: 0xebebeb,
+    slider_track: 0xccccff,
+    danger: 0xdb6965,
+    danger_hover: 0xd65550,
     input_label: 0x495057,
     grid: 0xe9ecef,
 };
@@ -101,6 +110,9 @@ pub const DARK: Tokens = Tokens {
     primary_darkest: 0xbeb9ff,
     primary_light_darker: 0x43415e,
     swatch_outline: 0x3d3d3d,
+    slider_track: 0x504d7a,
+    danger: 0xffa8a5,
+    danger_hover: 0x8f2625,
     input_label: 0xe9ecef,
     grid: 0x232329,
 };
@@ -166,6 +178,25 @@ impl Tokens {
 
     pub fn swatch_outline(&self) -> Rgba {
         rgb(self.swatch_outline)
+    }
+
+    /// Upstream `--color-slider-track`, the filled part of a slider's track.
+    pub fn slider_track(&self) -> Rgba {
+        rgb(self.slider_track)
+    }
+
+    /// Upstream `--color-slider-thumb`, the round handle of a slider.
+    pub fn slider_thumb(&self) -> Rgba {
+        rgb(0x3d3d3d)
+    }
+
+    /// Upstream `--button-bg` inside the shape-actions theme scope, i.e. the
+    /// unfilled part of a slider's track.
+    pub fn slider_rest(&self) -> Rgba {
+        match self.palette {
+            Palette::Light => rgb(self.surface_mid),
+            Palette::Dark => rgb(self.surface_high),
+        }
     }
 
     pub fn input_label(&self) -> Rgba {
@@ -258,6 +289,23 @@ impl Tokens {
 
     pub fn accent(&self) -> Rgba {
         rgb(self.primary)
+    }
+
+    /// Upstream `--link-color`: blue-7 in light, blue-4 in dark.
+    pub fn link(&self) -> Rgba {
+        if self.palette.is_dark() {
+            rgb(0x4dabf7)
+        } else {
+            rgb(0x1c7ed6)
+        }
+    }
+
+    pub fn danger(&self) -> Rgba {
+        rgb(self.danger)
+    }
+
+    pub fn danger_hover(&self) -> Rgba {
+        rgb(self.danger_hover)
     }
 
     pub fn hover(&self) -> Rgba {
@@ -427,10 +475,15 @@ pub mod size {
     pub const PICKER_INPUT_PAD: f32 = 12.0;
 
     pub mod link_dialog {
-        pub const PADDING: f32 = 24.0;
-        pub const RADIUS: f32 = 10.0;
-
-        pub const WIDTH: f32 = 320.0;
+        pub const PADDING: f32 = 5.0;
+        pub const RADIUS: f32 = 6.0;
+        pub const WIDTH: f32 = 380.0;
+        pub const MIN_HEIGHT: f32 = 42.0;
+        pub const INPUT_HEIGHT: f32 = 24.0;
+        pub const FONT: f32 = 14.0;
+        /// Gap between the element's top edge and the popup, upstream's
+        /// `SPACE_BOTTOM`.
+        pub const TOP_OFFSET: f32 = 85.0;
     }
 
     pub mod font_picker {
@@ -584,6 +637,70 @@ pub mod size {
         pub const NAME_FIELD_TOP: f32 = 16.0;
     }
 
+    // Mirrors upstream TTDDialog.scss: 1.25rem dialog padding, 2.5rem tab and
+    // content padding, 2.875rem tabs and a 400px checkerboard preview.
+    pub mod ttd_dialog {
+        pub const WIDTH: f32 = 1520.0;
+
+        pub const MODAL_PADDING: f32 = 32.0;
+        pub const CONTENT_PADDING: f32 = 20.0;
+        /// Upstream nests the content inside the dialog's `1.25rem` padding and
+        /// leaves room for the action row's bottom margin below the panels.
+        pub const CONTENT_TOP_PADDING: f32 = 20.0;
+        pub const CONTENT_BOTTOM_PADDING: f32 = 40.0;
+        pub const MIN_HEIGHT: f32 = 560.0;
+        pub const MAX_HEIGHT: f32 = 950.0;
+
+        pub const RADIUS: f32 = 12.0;
+
+        pub const TABS_PAD_X: f32 = 40.0;
+        pub const TAB_H: f32 = 46.0;
+        pub const TAB_PAD_X: f32 = 16.0;
+        pub const TAB_FONT: f32 = 14.0;
+        pub const TAB_BORDER: f32 = 2.0;
+
+        pub const BADGE_PAD_X: f32 = 6.0;
+        pub const BADGE_PAD_Y: f32 = 1.0;
+        pub const BADGE_MARGIN_LEFT: f32 = 10.0;
+        pub const BADGE_FONT: f32 = 10.0;
+        pub const BADGE_RADIUS: f32 = 12.0;
+
+        pub const DESC_FONT: f32 = 15.0;
+        pub const DESC_LINE_H: f32 = 21.75;
+        pub const DESC_TOP: f32 = 8.0;
+        pub const DESC_BOTTOM: f32 = 24.0;
+
+        pub const PANEL_GAP: f32 = 32.0;
+        pub const PANEL_PAD_X: f32 = 40.0;
+
+        pub const INPUT_FONT: f32 = 14.0;
+        pub const INPUT_LINE_H: f32 = 21.0;
+        pub const INPUT_PAD: f32 = 12.0;
+        pub const INPUT_RADIUS: f32 = 8.0;
+        pub const GUTTER_W: f32 = 32.0;
+        pub const GUTTER_GAP: f32 = 10.0;
+
+        pub const PREVIEW_RADIUS: f32 = 8.0;
+        pub const PREVIEW_PAD: f32 = 16.0;
+        pub const PREVIEW_BORDER: f32 = 1.0;
+        pub const CHECKER: f32 = 8.0;
+
+        pub const BUTTON_H: f32 = 40.0;
+        pub const BUTTON_PAD_X: f32 = 12.0;
+        pub const BUTTON_RADIUS: f32 = 6.0;
+        pub const BUTTON_FONT: f32 = 12.0;
+        pub const BUTTON_MIN_W: f32 = 120.0;
+        pub const BUTTON_TOP: f32 = 16.0;
+        pub const BUTTON_BOTTOM: f32 = 8.0;
+
+        pub const SHORTCUT_FONT: f32 = 10.0;
+        pub const SHORTCUT_PAD_X: f32 = 3.0;
+        pub const SHORTCUT_PAD_Y: f32 = 2.0;
+        pub const SHORTCUT_RADIUS: f32 = 4.0;
+        pub const SHORTCUT_GAP: f32 = 2.0;
+        pub const SHORTCUT_MARGIN: f32 = 8.0;
+    }
+
     pub mod language_select {
         pub const HEIGHT: f32 = 32.0;
         pub const PAD_START: f32 = 8.0;
@@ -645,6 +762,30 @@ pub mod size {
         pub const KEY_GAP: f32 = 4.0;
     }
 
+    // Upstream ConfirmDialog rendered at size "small" (max-width 550px) inside
+    // the Modal's 2.5rem island: a left-aligned title over a bottom rule, the
+    // alert body, then the cancel/confirm pair right-aligned.
+    pub mod clear_dialog {
+        pub const WIDTH: f32 = 550.0;
+
+        pub const MODAL_PADDING: f32 = 40.0;
+
+        pub const RADIUS: f32 = 12.0;
+
+        pub const TITLE_FONT: f32 = 20.0;
+        pub const TITLE_PAD_BOTTOM: f32 = 12.0;
+        pub const TITLE_MARGIN_BOTTOM: f32 = 24.0;
+
+        pub const BODY_FONT: f32 = 16.0;
+
+        pub const BUTTON_TOP: f32 = 24.0;
+        pub const BUTTON_GAP: f32 = 8.0;
+        pub const BUTTON_H: f32 = 48.0;
+        pub const BUTTON_PAD_X: f32 = 24.0;
+        pub const BUTTON_RADIUS: f32 = 8.0;
+        pub const BUTTON_FONT: f32 = 14.0;
+    }
+
     // Upstream CommandPalette: a 720px dialog with a 1.5rem island, a 3rem
     // search field that focuses to the brand-active border, a centred row of
     // shortcut hints, and 2.5rem-tall command rows grouped by category.
@@ -696,6 +837,22 @@ pub mod size {
 
         pub const NO_MATCH_MARGIN_TOP: f32 = 36.0;
         pub const DISABLED_OPACITY: f32 = 0.3;
+    }
+
+    pub mod prop {
+        pub const LEGEND_FONT: f32 = 12.0;
+        pub const LEGEND_GAP: f32 = 4.0;
+
+        pub const SLIDER_TOP: f32 = 10.0;
+        pub const SLIDER_BOTTOM: f32 = 25.0;
+
+        pub const SLIDER_HEIGHT: f32 = 4.0;
+        pub const SLIDER_RADIUS: f32 = 2.0;
+        pub const SLIDER_THUMB: f32 = 16.0;
+
+        pub const SLIDER_FONT: f32 = 12.0;
+        pub const SLIDER_VALUE_WIDTH: f32 = 24.0;
+        pub const SLIDER_ZERO_LEFT: f32 = 4.0;
     }
 }
 
@@ -772,6 +929,17 @@ pub fn island_shadow() -> Vec<BoxShadow> {
             inset: false,
         },
     ]
+}
+
+/// Upstream `Hyperlink.scss`: `box-shadow: 0 2px 4px 0 rgb(0 0 0 / 30%)`.
+pub fn link_dialog_shadow() -> Vec<BoxShadow> {
+    vec![BoxShadow {
+        color: hsla(0.0, 0.0, 0.0, 0.3),
+        offset: point(px(0.0), px(2.0)),
+        blur_radius: px(4.0),
+        spread_radius: px(0.0),
+        inset: false,
+    }]
 }
 
 pub fn modal_shadow() -> Vec<BoxShadow> {

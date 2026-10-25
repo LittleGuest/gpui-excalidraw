@@ -176,6 +176,11 @@ pub const STROKE_TOP_PICKS: [&str; 5] = ["#1e1e1e", "#e03131", "#2f9e44", "#1971
 pub const BACKGROUND_TOP_PICKS: [&str; 5] =
     ["transparent", "#ffc9c9", "#b2f2bb", "#a5d8ff", "#ffec99"];
 
+/// Upstream's bucket fill picks: the background picks with `transparent`, a
+/// no-op fill for the bucket, swapped for white.
+pub const BUCKET_FILL_TOP_PICKS: [&str; 5] =
+    ["#ffffff", "#ffc9c9", "#b2f2bb", "#a5d8ff", "#ffec99"];
+
 pub fn is_custom_color(color: &str) -> bool {
     !element_palette()
         .iter()

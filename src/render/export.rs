@@ -9,7 +9,7 @@ use crate::{
         scene::{BinaryFileData, Scene},
         types::{FillStyle, FontFamily},
     },
-    render::shape::{Drawable, Op, Rgba, render_element},
+    render::shape::{Drawable, Op, Rgba, render_element, render_element_with_lookup},
 };
 
 pub type BinaryFiles = HashMap<String, BinaryFileData>;
@@ -60,8 +60,9 @@ pub fn dark_mode_color(r: u8, g: u8, b: u8) -> (u8, u8, u8) {
     )
 }
 
-/// The same filter applied to a `#rrggbb` string, used for the export background.
-fn dark_mode_hex(color: &str) -> String {
+/// The same filter applied to a `#rrggbb` string, used for the export background
+/// and by the Mermaid preview when the dark theme is active.
+pub(crate) fn dark_mode_hex(color: &str) -> String {
     let rgba = Rgba::from_hex(color);
     let (r, g, b) = dark_mode_color(
         (rgba.r * 255.0).round() as u8,
@@ -264,8 +265,9 @@ impl SvgExporter {
             );
         }
 
+        let lookup: HashMap<&str, &Element> = elements.iter().map(|e| (e.id(), *e)).collect();
         for element in &elements {
-            let drawables = render_element(element);
+            let drawables = render_element_with_lookup(element, &lookup);
             for d in drawables {
                 write_drawable(&mut svg, &d, files, dark_mode);
             }
@@ -451,7 +453,7 @@ fn escape_xml(s: &str) -> String {
         .replace('\'', "&apos;")
 }
 
-fn ops_to_path(ops: &[Op]) -> String {
+pub(crate) fn ops_to_path(ops: &[Op]) -> String {
     let mut path = String::new();
     for op in ops {
         match op {

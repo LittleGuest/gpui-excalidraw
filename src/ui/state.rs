@@ -22,8 +22,11 @@ pub enum Tool {
     Image,
     Frame,
     Eraser,
+    BucketFill,
+    Lasso,
     Laser,
     StickyNote,
+    Embeddable,
 }
 
 impl Tool {
@@ -37,6 +40,7 @@ impl Tool {
             Self::FreeDraw => Some(ElementType::Freedraw),
             Self::Frame => Some(ElementType::Frame),
             Self::StickyNote => Some(ElementType::StickyNote),
+            Self::Embeddable => Some(ElementType::Embeddable),
             _ => None,
         }
     }
@@ -75,6 +79,13 @@ fn repoint_label(copy: &mut Element, remap: &HashMap<String, String>) {
     {
         t.container_id = Some(new_container.clone());
     }
+    if let Some(bound) = copy.base_mut().bound_elements.as_mut() {
+        for item in bound.iter_mut() {
+            if let Some(new_id) = remap.get(&item.id) {
+                item.id = new_id.clone();
+            }
+        }
+    }
 }
 
 pub fn selection_bounds(
@@ -105,7 +116,7 @@ impl Default for ElementStyle {
         Self {
             stroke_color: "#1e1e1e".to_string(),
             background_color: "transparent".to_string(),
-            fill_style: FillStyle::Hachure,
+            fill_style: FillStyle::Solid,
             stroke_width: 2.0,
             stroke_style: StrokeStyle::Solid,
             roughness: 1.0,

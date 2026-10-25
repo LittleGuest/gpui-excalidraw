@@ -53,6 +53,33 @@ pub fn hit_test_linear(element: &Element, p: Point, threshold: f64) -> bool {
         .any(|w| distance_to_segment(p, w[0], w[1]) <= threshold)
 }
 
+/// Closed line polygons are hit anywhere inside, not only near their outline,
+/// which is what makes bucket fills selectable after painting.
+pub fn hit_test_polygon(element: &Element, p: Point) -> bool {
+    let Element::Line(line) = element else {
+        return false;
+    };
+    line.polygon && line.linear.points.len() >= 3 && point_in_ring(&line.linear.points, p)
+}
+
+fn point_in_ring(ring: &[Point], p: Point) -> bool {
+    let mut inside = false;
+    let mut j = ring.len() - 1;
+    for i in 0..ring.len() {
+        let a = ring[i];
+        let b = ring[j];
+        if (a.y > p.y) != (b.y > p.y) {
+            let t = (p.y - a.y) / (b.y - a.y);
+            let x = a.x + (b.x - a.x) * t;
+            if p.x < x {
+                inside = !inside;
+            }
+        }
+        j = i;
+    }
+    inside
+}
+
 pub fn hit_test_freedraw(element: &Element, p: Point, threshold: f64) -> bool {
     if let Element::Freedraw(f) = element {
         f.points
@@ -76,7 +103,7 @@ pub fn hit_test_element(element: &Element, p: Point, threshold: f64) -> bool {
         | crate::element::ElementType::Iframe
         | crate::element::ElementType::StickyNote => hit_test_rectangle(element, p),
         crate::element::ElementType::Line | crate::element::ElementType::Arrow => {
-            hit_test_linear(element, p, threshold)
+            hit_test_polygon(element, p) || hit_test_linear(element, p, threshold)
         }
         crate::element::ElementType::Freedraw => hit_test_freedraw(element, p, threshold),
         crate::element::ElementType::Selection => false,

@@ -14,6 +14,10 @@ pub mod element;
 pub mod factory;
 #[path = "geometry.rs"]
 pub mod geometry;
+#[path = "lasso.rs"]
+pub mod lasso;
+#[path = "mermaid.rs"]
+pub mod mermaid;
 #[path = "operations.rs"]
 pub mod operations;
 #[path = "scene.rs"]

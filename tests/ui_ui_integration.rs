@@ -113,9 +113,25 @@ fn chrome_islands_are_laid_out_and_clickable(cx: &mut TestAppContext) {
 
         window.click("more-tools", cx);
         window.render_frame(cx);
+        assert!(
+            window.find("more-bucketFillIcon").visible(),
+            "the bucket lives in the extra tools menu, like upstream"
+        );
         window.click("more-laserPointerToolIcon", cx);
         content.update(cx, |editor, _| {
             assert_eq!(editor.document.tool, Tool::Laser);
+            assert!(!editor.is_more_tools_open(), "the popover should close");
+        });
+
+        window.click("more-tools", cx);
+        window.render_frame(cx);
+        window.click("more-lassoToolIcon", cx);
+        content.update(cx, |editor, _| {
+            assert_eq!(
+                editor.document.tool,
+                Tool::Lasso,
+                "the lasso row arms the lasso tool"
+            );
             assert!(!editor.is_more_tools_open(), "the popover should close");
         });
 
@@ -136,6 +152,278 @@ fn chrome_islands_are_laid_out_and_clickable(cx: &mut TestAppContext) {
                 editor.document.tool,
                 Tool::Selection,
                 "an unlocked tool hands back the selection tool"
+            );
+        });
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn the_web_embed_tool_draws_an_embeddable_and_asks_for_its_link(cx: &mut TestAppContext) {
+    use gpui_excalidraw::{core::element::ElementType, ui::Tool};
+
+    let (window, content) = open_editor(cx);
+
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        window.click("more-tools", cx);
+        window.render_frame(cx);
+        window.click("more-EmbedIcon", cx);
+        content.update(cx, |editor, _| {
+            assert_eq!(
+                editor.document.tool,
+                Tool::Embeddable,
+                "the row arms the embeddable tool instead of inserting an element"
+            );
+            assert!(!editor.is_more_tools_open(), "the popover should close");
+        });
+
+        let before = content.read(cx).document.scene.len();
+        window.drag(
+            Point::new(px(300.0), px(250.0)),
+            Point::new(px(520.0), px(430.0)),
+            cx,
+        );
+        content.update(cx, |editor, _| {
+            assert_eq!(
+                editor.document.scene.len(),
+                before + 1,
+                "dragging on the canvas should add one embeddable"
+            );
+            let element = editor
+                .document
+                .scene
+                .elements
+                .last()
+                .expect("the drawn embeddable");
+            assert_eq!(element.kind(), ElementType::Embeddable);
+            assert!(
+                element.base().width > 200.0 && element.base().height > 150.0,
+                "the drag, not a fixed default, sizes the frame"
+            );
+            assert!(
+                editor.is_link_dialog_open(),
+                "upstream asks for a link right after the frame is drawn"
+            );
+            assert_eq!(
+                editor.document.tool,
+                Tool::Selection,
+                "an unlocked tool hands back the selection tool"
+            );
+        });
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn the_link_popup_shows_the_summary_and_edits_on_pencil(cx: &mut TestAppContext) {
+    let (window, content) = open_editor(cx);
+
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        window.click("more-tools", cx);
+        window.render_frame(cx);
+        window.click("more-EmbedIcon", cx);
+        window.drag(
+            Point::new(px(300.0), px(250.0)),
+            Point::new(px(520.0), px(430.0)),
+            cx,
+        );
+        window.render_frame(cx);
+        content.update(cx, |editor, _| {
+            assert!(editor.is_link_editing(), "a fresh frame opens the input");
+        });
+
+        window.click("link-confirm", cx);
+        window.render_frame(cx);
+        content.update(cx, |editor, _| {
+            assert!(
+                editor.is_link_dialog_open(),
+                "submitting keeps the popup open in summary mode"
+            );
+            assert!(!editor.is_link_editing());
+        });
+        assert!(
+            window.try_find("link-input").is_none(),
+            "the summary shows the label instead of the input"
+        );
+        assert!(
+            window.find("link-edit").visible(),
+            "the summary popup offers the pencil button"
+        );
+        assert!(
+            window.find("link-label").visible(),
+            "the summary names the missing link"
+        );
+
+        window.click("link-edit", cx);
+        window.render_frame(cx);
+        content.update(cx, |editor, _| {
+            assert!(editor.is_link_editing(), "the pencil reopens the input");
+        });
+        assert!(
+            window.find("link-input").visible(),
+            "the pencil brings the input back"
+        );
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn the_laser_trail_outlives_the_pointer_and_decays_from_its_tail(cx: &mut TestAppContext) {
+    use gpui_excalidraw::ui::Tool;
+
+    let (window, content) = open_editor(cx);
+
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        window.click("more-tools", cx);
+        window.render_frame(cx);
+        window.click("more-laserPointerToolIcon", cx);
+        content.update(cx, |editor, _| {
+            assert_eq!(editor.document.tool, Tool::Laser);
+        });
+
+        window.drag(
+            Point::new(px(300.0), px(250.0)),
+            Point::new(px(520.0), px(430.0)),
+            cx,
+        );
+        content.update(cx, |editor, _| {
+            let trail = editor.laser_trail();
+            assert!(
+                trail.len() >= 2,
+                "releasing must keep the trail instead of clearing it"
+            );
+            assert!(
+                trail.last().expect("newest sample").1 >= trail.first().expect("oldest sample").1,
+                "samples decay from the oldest end"
+            );
+            assert!(
+                trail.iter().all(|(_, remaining)| *remaining > 0.0),
+                "fresh samples are still visible"
+            );
+            assert!(!editor.is_interacting(), "the stroke has ended");
+        });
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn the_bucket_tool_fills_an_enclosed_region(cx: &mut TestAppContext) {
+    use gpui_excalidraw::{
+        core::{FillStyle, element::Element},
+        ui::Tool,
+    };
+
+    let (window, content) = open_editor(cx);
+
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+
+        window.click("tool-RectangleIcon", cx);
+        window.drag(
+            Point::new(px(300.0), px(250.0)),
+            Point::new(px(520.0), px(430.0)),
+            cx,
+        );
+
+        window.click("more-tools", cx);
+        window.render_frame(cx);
+        window.click("more-bucketFillIcon", cx);
+        content.update(cx, |editor, _| {
+            assert_eq!(editor.document.tool, Tool::BucketFill);
+            assert_eq!(
+                editor.document.style.fill_style,
+                FillStyle::Solid,
+                "upstream defaults the bucket fill style to solid"
+            );
+        });
+
+        // Upstream's bucket panel is exactly colour, fill style and opacity.
+        assert!(window.find("legend-background").visible());
+        assert!(window.find("legend-fill").visible());
+        assert!(window.find("opacity-slider").visible());
+        content.update(cx, |editor, _| {
+            assert_ne!(
+                editor.i18n.t("labels.background"),
+                "labels.background",
+                "the background legend is missing its translation"
+            );
+        });
+        window.click("fill-hachure", cx);
+        content.update(cx, |editor, _| {
+            assert_eq!(editor.document.style.fill_style, FillStyle::Hachure);
+        });
+
+        let click = Point::new(px(400.0), px(330.0));
+        let before = content.read(cx).document.scene.len();
+        window.drag(click, click, cx);
+
+        content.update(cx, |editor, _| {
+            assert_eq!(
+                editor.document.scene.len(),
+                before + 1,
+                "a click inside the rectangle paints one polygon"
+            );
+            let fill = editor
+                .document
+                .scene
+                .elements
+                .last()
+                .expect("the generated fill");
+            match fill {
+                Element::Line(line) => {
+                    assert!(line.polygon, "fills are closed polygons");
+                    assert_eq!(line.linear.base.stroke_color, "transparent");
+                    assert_eq!(
+                        line.linear.base.background_color, "#b2f2bb",
+                        "a transparent background falls back to the green swatch"
+                    );
+                    assert_eq!(
+                        line.linear.base.fill_style,
+                        FillStyle::Hachure,
+                        "the panel's fill style applies to the painted fill"
+                    );
+                    assert!(
+                        line.linear.points.len() >= 4,
+                        "the traced outline needs a real polygon"
+                    );
+                }
+                other => panic!("expected a polygon line, got {:?}", other.kind()),
+            }
+            assert_eq!(
+                editor.document.tool,
+                Tool::BucketFill,
+                "upstream keeps the bucket armed for repeated fills"
+            );
+            assert!(
+                editor.document.selected.is_empty(),
+                "painting does not select the generated fill"
+            );
+            let fill_id = editor
+                .document
+                .scene
+                .elements
+                .last()
+                .unwrap()
+                .id()
+                .to_string();
+            assert_eq!(
+                editor
+                    .document
+                    .element_at(gpui_excalidraw::Point::new(400.0, 330.0), 2.0),
+                Some(fill_id),
+                "the painted interior is selectable afterwards"
+            );
+        });
+
+        window.drag(click, click, cx);
+        content.update(cx, |editor, _| {
+            assert_eq!(
+                editor.document.scene.len(),
+                before + 1,
+                "re-clicking existing paint restyles it instead of stacking a duplicate"
             );
         });
     })
@@ -569,6 +857,57 @@ fn canvas_buttons_track_a_generated_iframe(cx: &mut TestAppContext) {
 
     let copied = cx.read_from_clipboard().and_then(|item| item.text());
     assert_eq!(copied.as_deref(), Some("https://example.com/embed"));
+}
+
+#[gpui_kit::test]
+fn a_selected_frame_hides_the_shape_style_controls(cx: &mut TestAppContext) {
+    use gpui_excalidraw::core::element::{Element, ElementBase, ElementType, FrameElement};
+
+    let (window, content) = open_editor(cx);
+
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+
+        content.update(cx, |editor, _| {
+            let mut base = ElementBase::new("frame-1".to_string(), ElementType::Frame);
+            base.x = 100.0;
+            base.y = 100.0;
+            base.width = 300.0;
+            base.height = 200.0;
+            editor
+                .document
+                .scene
+                .add(Element::Frame(FrameElement { base, name: None }));
+            editor.document.select("frame-1");
+        });
+        window.render_frame(cx);
+
+        assert!(
+            window.try_find("opacity-slider").is_some(),
+            "frames keep the opacity control"
+        );
+        assert!(
+            window.try_find("layers-front").is_some(),
+            "frames keep the layer controls"
+        );
+        assert!(
+            window.try_find("single-del").is_some(),
+            "frames keep the action controls"
+        );
+        assert!(
+            window.try_find("width-thin").is_none(),
+            "frames must not offer a stroke width"
+        );
+        assert!(
+            window.try_find("fill-hachure").is_none(),
+            "frames must not offer a fill style"
+        );
+        assert!(
+            window.try_find("edge-sharp").is_none(),
+            "frames must not offer a roundness"
+        );
+    })
+    .unwrap();
 }
 
 #[gpui_kit::test]
@@ -1541,7 +1880,9 @@ fn font_picker_popup_searches_and_selects(cx: &mut TestAppContext) {
 
 #[gpui_kit::test]
 fn element_link_dialog_writes_and_clears_the_link(cx: &mut TestAppContext) {
-    let (window, content) = open_editor(cx);
+    // The action row sits below the fold of a 600px window once the panel
+    // grows its per-row legends, so this test uses a taller one.
+    let (window, content) = open_editor_sized(cx, 800.0, 1100.0);
 
     cx.update_window(window.into(), |_, window, cx| {
         window.render_frame(cx);
@@ -1677,6 +2018,314 @@ fn ctrl_v_while_editing_pastes_into_the_text_element(cx: &mut TestAppContext) {
                 Element::Text(text) => assert_eq!(text.text, "pasteme"),
                 _ => panic!("the paste changed the element type"),
             }
+        });
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn the_opacity_row_is_a_0_to_100_slider(cx: &mut TestAppContext) {
+    let (window, content) = open_editor(cx);
+
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+
+        let target = content.read(cx).document.scene.elements[0].id().to_string();
+        content.update(cx, |editor, _| editor.document.select(&target));
+        window.render_frame(cx);
+
+        assert!(
+            window.try_find("opacity-100").is_none(),
+            "opacity must not be a row of preset buttons anymore"
+        );
+
+        let slider = window.find("opacity-slider").bounds();
+        let y = px(18.0);
+        let track_end = slider.size.width - px(9.0);
+
+        window.click("opacity-slider", cx);
+        window.click_at("opacity-slider", Point::new(px(8.0), y), cx);
+        window.render_frame(cx);
+        content.update(cx, |editor, _| {
+            assert_eq!(
+                editor.document.selected_elements()[0].base().opacity,
+                0.0,
+                "the left end of the track should be 0%"
+            );
+        });
+
+        window.click_at("opacity-slider", Point::new(track_end, y), cx);
+        window.render_frame(cx);
+        content.update(cx, |editor, _| {
+            assert_eq!(
+                editor.document.selected_elements()[0].base().opacity,
+                100.0,
+                "the right end of the track should be 100%"
+            );
+        });
+
+        // Dragging, not just clicking, has to move the value and stay on the
+        // track once the pointer travels past it. One drag also collapses into
+        // a single undo step, so a single undo returns the pre-drag value.
+        window.drag(
+            slider.origin + Point::new(slider.size.width / 2.0, y),
+            slider.origin + Point::new(px(8.0), y),
+            cx,
+        );
+        window.render_frame(cx);
+        content.update(cx, |editor, _| {
+            assert_eq!(
+                editor.document.selected_elements()[0].base().opacity,
+                0.0,
+                "dragging across the track should read the final pointer position"
+            );
+        });
+        window.press("ctrl-z", cx);
+        content.update(cx, |editor, _| {
+            // Undoing drops the selection, so the value is read back from the
+            // element itself.
+            let restored = editor
+                .document
+                .scene
+                .elements
+                .iter()
+                .find(|element| element.id() == target.as_str())
+                .expect("undo removed the dragged element");
+            assert_eq!(
+                restored.base().opacity,
+                100.0,
+                "the whole drag should have been a single undo step"
+            );
+        });
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn the_panel_labels_its_groups_and_orders_the_actions(cx: &mut TestAppContext) {
+    use gpui_excalidraw::core::element::Element;
+
+    let (window, content) = open_editor(cx);
+
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+
+        let target = content.read(cx).document.scene.elements[0].id().to_string();
+        content.update(cx, |editor, _| editor.document.select(&target));
+        window.render_frame(cx);
+
+        for id in [
+            "legend-fill",
+            "legend-stroke-width",
+            "legend-stroke-style",
+            "legend-sloppiness",
+            "legend-edges",
+            "legend-opacity",
+            "legend-layers",
+            "legend-actions",
+        ] {
+            assert!(window.try_find(id).is_some(), "{id} is missing");
+        }
+
+        let duplicate = window.find("single-dup").bounds();
+        let delete = window.find("single-del").bounds();
+        let link = window.find("single-link").bounds();
+        assert!(
+            duplicate.origin.x < delete.origin.x && delete.origin.x < link.origin.x,
+            "the action row should read duplicate, delete, link: {duplicate:?} {delete:?} {link:?}"
+        );
+        assert!(
+            window.try_find("single-lock").is_none(),
+            "upstream does not put lock in this row"
+        );
+
+        let linear = content
+            .read(cx)
+            .document
+            .scene
+            .elements
+            .iter()
+            .find_map(|element| {
+                matches!(element, Element::Arrow(_) | Element::Line(_))
+                    .then(|| element.id().to_string())
+            });
+        let linear = linear.expect("the demo scene has an arrow");
+        content.update(cx, |editor, _| editor.document.select(&linear));
+        window.render_frame(cx);
+        assert!(
+            window.try_find("legend-arrowheads").is_some(),
+            "linear elements label their arrowheads"
+        );
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn clearing_the_canvas_asks_before_it_wipes(cx: &mut TestAppContext) {
+    let (window, content) = open_editor_sized(cx, 1000.0, 800.0);
+
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        let before = content.read(cx).document.scene.len();
+        assert!(before > 0, "the demo scene should have elements");
+
+        window.click("menu", cx);
+        window.render_frame(cx);
+        window.click("fm-reset", cx);
+        window.render_frame(cx);
+
+        assert!(
+            window.try_find("clear-dialog-confirm").is_some(),
+            "the reset row should ask before clearing"
+        );
+        assert_eq!(
+            content.read(cx).document.scene.len(),
+            before,
+            "opening the dialog must not clear anything"
+        );
+
+        window.click("clear-dialog-cancel", cx);
+        window.render_frame(cx);
+        assert!(
+            window.try_find("clear-dialog-confirm").is_none(),
+            "cancelling should close the dialog"
+        );
+        assert_eq!(
+            content.read(cx).document.scene.len(),
+            before,
+            "cancelling must keep the scene"
+        );
+
+        window.click("menu", cx);
+        window.render_frame(cx);
+        window.click("fm-reset", cx);
+        window.render_frame(cx);
+        window.click("clear-dialog-confirm", cx);
+        window.render_frame(cx);
+
+        assert!(
+            window.try_find("clear-dialog-confirm").is_none(),
+            "confirming should close the dialog"
+        );
+        assert_eq!(
+            content.read(cx).document.scene.len(),
+            0,
+            "confirming should clear the canvas"
+        );
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn mermaid_dialog_opens_previews_and_inserts(cx: &mut TestAppContext) {
+    let (window, content) = open_editor_sized(cx, 1000.0, 800.0);
+
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        window.click("more-tools", cx);
+        window.render_frame(cx);
+        window.click("more-mermaidIcon", cx);
+        window.render_frame(cx);
+
+        content.update(cx, |editor, _| {
+            assert!(
+                editor.is_mermaid_dialog_open(),
+                "the Mermaid row should raise the dialog"
+            );
+            assert!(
+                !editor.mermaid_preview_elements().is_empty(),
+                "the seeded example should already render a preview"
+            );
+        });
+        assert!(window.find("mermaid-input").visible());
+        assert!(window.find("mermaid-preview").visible());
+
+        let before = content.read(cx).document.scene.len();
+        window.click("mermaid-insert", cx);
+        window.render_frame(cx);
+
+        content.update(cx, |editor, _| {
+            assert!(
+                !editor.is_mermaid_dialog_open(),
+                "inserting should close the dialog"
+            );
+            assert!(
+                editor.document.scene.len() > before,
+                "inserting should add the generated elements"
+            );
+            assert!(
+                !editor.document.selected.is_empty(),
+                "the inserted diagram should be selected"
+            );
+        });
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn mermaid_ctrl_enter_inserts_like_the_shortcut_hint(cx: &mut TestAppContext) {
+    let (window, content) = open_editor_sized(cx, 1000.0, 800.0);
+
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        window.click("more-tools", cx);
+        window.render_frame(cx);
+        window.click("more-mermaidIcon", cx);
+        window.render_frame(cx);
+
+        let before = content.read(cx).document.scene.len();
+        window.press("ctrl-enter", cx);
+        window.render_frame(cx);
+
+        content.update(cx, |editor, _| {
+            assert!(
+                !editor.is_mermaid_dialog_open(),
+                "Ctrl+Enter should close the dialog"
+            );
+            assert!(
+                editor.document.scene.len() > before,
+                "Ctrl+Enter should insert the diagram"
+            );
+        });
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn mermaid_editor_edits_the_source_and_closes_on_escape(cx: &mut TestAppContext) {
+    let (window, content) = open_editor_sized(cx, 1000.0, 800.0);
+
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        window.click("more-tools", cx);
+        window.render_frame(cx);
+        window.click("more-mermaidIcon", cx);
+        window.render_frame(cx);
+
+        window.press("ctrl-a", cx);
+        window.input("graph LR", cx);
+        window.press("enter", cx);
+        window.input("A[One] --> B[Two]", cx);
+        window.render_frame(cx);
+
+        content.update(cx, |editor, _| {
+            assert!(
+                editor.mermaid_source().starts_with("graph LR"),
+                "typing should replace the selected source"
+            );
+            assert!(
+                !editor.mermaid_preview_elements().is_empty(),
+                "the edited source should be re-parsed"
+            );
+        });
+
+        window.press("escape", cx);
+        window.render_frame(cx);
+        content.update(cx, |editor, _| {
+            assert!(
+                !editor.is_mermaid_dialog_open(),
+                "escape should dismiss the Mermaid dialog"
+            );
         });
     })
     .unwrap();

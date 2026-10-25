@@ -27,6 +27,18 @@ fn measure(text: &str, font_size: f64) -> f64 {
     text.chars().map(|c| char_advance(c, font_size)).sum()
 }
 
+/// Width of the widest line, used to size labels without a text layout pass.
+pub fn text_width(text: &str, font_size: f64) -> f64 {
+    text.split('\n')
+        .map(|line| measure(line, font_size))
+        .fold(0.0, f64::max)
+}
+
+/// Height of `text` for the given line height.
+pub fn text_height(text: &str, font_size: f64, line_height: f64) -> f64 {
+    text.split('\n').count().max(1) as f64 * font_size * line_height
+}
+
 pub fn wrap_text(text: &str, max_width: f64, font_size: f64) -> String {
     if !max_width.is_finite() || max_width <= 0.0 || font_size <= 0.0 {
         return text.to_string();
